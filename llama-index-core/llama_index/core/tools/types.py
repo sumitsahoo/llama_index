@@ -3,6 +3,8 @@ from abc import abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, Optional, Type
 
+from llama_index.core import instrumentation
+
 if TYPE_CHECKING:
     from llama_index.core.bridge.langchain import StructuredTool, Tool
 from deprecated import deprecated
@@ -68,8 +70,13 @@ class ToolMetadata:
             "parameters": self.get_parameters_dict(),
         }
 
-    def to_openai_tool(self) -> Dict[str, Any]:
+    def to_openai_tool(self, skip_length_check: bool = False) -> Dict[str, Any]:
         """To OpenAI tool."""
+        if not skip_length_check and len(self.description) > 1024:
+            raise ValueError(
+                "Tool description exceeds maximum length of 1024 characters. "
+                "Please shorten your description or move it to the prompt."
+            )
         return {
             "type": "function",
             "function": {
@@ -170,6 +177,17 @@ class AsyncBaseTool(BaseTool):
         Should also be implemented by the tool developer as an
         async-compatible implementation.
         """
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        """
+        Decorate the abstract methods' implementations for each subclass.
+        `__init_subclass__` is analogous to `__init__` because classes are also objects.
+        """
+        super().__init_subclass__(**kwargs)
+        dispatcher = instrumentation.get_dispatcher(cls.__module__)
+        for attr in ("call", "acall"):
+            if callable(method := cls.__dict__.get(attr)):
+                setattr(cls, attr, dispatcher.span(method))
 
 
 class BaseToolAsyncAdapter(AsyncBaseTool):

@@ -6,7 +6,6 @@ An index that is built within Milvus.
 
 import logging
 from typing import Any, Dict, List, Optional, Union
-from urllib.parse import urlparse
 
 import pymilvus  # noqa
 from llama_index.core.bridge.pydantic import Field, PrivateAttr
@@ -18,6 +17,7 @@ from llama_index.vector_stores.milvus.utils import (
 )
 from llama_index.core.vector_stores.types import (
     BasePydanticVectorStore,
+    FilterOperator,
     MetadataFilters,
     VectorStoreQuery,
     VectorStoreQueryMode,
@@ -29,7 +29,7 @@ from llama_index.core.vector_stores.utils import (
     metadata_dict_to_node,
     node_to_metadata_dict,
 )
-from pymilvus import Collection, MilvusClient, DataType, AnnSearchRequest, connections
+from pymilvus import Collection, MilvusClient, DataType, AnnSearchRequest
 
 logger = logging.getLogger(__name__)
 
@@ -43,22 +43,44 @@ except Exception as e:
     RRFRanker = None
 
 
-def extract_host_port(url):
-    parsed_url = urlparse(url)
-    host = parsed_url.hostname
-    port = parsed_url.port
-    return host, port
+def _to_milvus_filter(standard_filters: MetadataFilters) -> str:
+    """Translate standard metadata filters to Milvus specific spec.
 
+    Note that Milvus supports single-quoted strings, so we use f-string with
+    the '!r' modifier to add single quotes for string values if necessary.
 
-def _to_milvus_filter(standard_filters: MetadataFilters) -> List[str]:
-    """Translate standard metadata filters to Milvus specific spec."""
+    References:
+    - https://milvus.io/docs/boolean.md
+    - https://github.com/milvus-io/milvus/pull/24386
+    - https://docs.python.org/3/tutorial/inputoutput.html#formatted-string-literals
+    """
     filters = []
-    for filter in standard_filters.legacy_filters():
-        if isinstance(filter.value, str):
-            filters.append(str(filter.key) + " == " + '"' + str(filter.value) + '"')
+    for filter in standard_filters.filters:
+        if filter.operator in (
+            FilterOperator.EQ,
+            FilterOperator.NE,
+            FilterOperator.GT,
+            FilterOperator.LT,
+            FilterOperator.GTE,
+            FilterOperator.LTE,
+            FilterOperator.IN,
+        ):
+            filters.append(f"{filter.key} {filter.operator.value} {filter.value!r}")
+        elif filter.operator == FilterOperator.NIN:
+            filters.append(f"{filter.key} not in {filter.value!r}")
+        elif filter.operator == FilterOperator.TEXT_MATCH:
+            # We assume that "text_match" can only be used for string values.
+            filters.append(f"{filter.key} like '%{filter.value}%'")
+        elif filter.operator == FilterOperator.CONTAINS:
+            filters.append(f"array_contains({filter.key}, {filter.value!r})")
+        elif filter.operator == FilterOperator.ANY:
+            filters.append(f"array_contains_any({filter.key}, {filter.value!r})")
+        elif filter.operator == FilterOperator.ALL:
+            filters.append(f"array_contains_all({filter.key}, {filter.value!r})")
         else:
-            filters.append(str(filter.key) + " == " + str(filter.value))
-    return filters
+            raise ValueError(f"FilterOperator {filter.operator} is not supported.")
+    joined_filters = f" {standard_filters.condition.value} ".join(filters)
+    return f"({joined_filters})" if len(filters) > 1 else joined_filters
 
 
 class MilvusVectorStore(BasePydanticVectorStore):
@@ -259,15 +281,7 @@ class MilvusVectorStore(BasePydanticVectorStore):
                     ) from e
                 self._create_hybrid_index(collection_name)
 
-        if self.enable_sparse is False:
-            self._collection = Collection(
-                collection_name, using=self._milvusclient._using
-            )
-        else:
-            host, port = extract_host_port(uri)
-            connections.connect("default", host=host, port=port)
-            self._collection = Collection(collection_name)
-
+        self._collection = Collection(collection_name, using=self._milvusclient._using)
         self._create_index_if_required()
 
         self.enable_sparse = enable_sparse
@@ -385,7 +399,7 @@ class MilvusVectorStore(BasePydanticVectorStore):
 
         # Parse the filter
         if query.filters is not None:
-            expr.extend(_to_milvus_filter(query.filters))
+            expr.append(_to_milvus_filter(query.filters))
 
         # Parse any docs we are filtering on
         if query.doc_ids is not None and len(query.doc_ids) != 0:
@@ -406,7 +420,7 @@ class MilvusVectorStore(BasePydanticVectorStore):
         # Convert to string expression
         string_expr = ""
         if len(expr) != 0:
-            string_expr = f" {query.filters.condition.value} ".join(expr)
+            string_expr = f" and ".join(expr)
 
         # Perform the search
         if query.mode == VectorStoreQueryMode.DEFAULT:
