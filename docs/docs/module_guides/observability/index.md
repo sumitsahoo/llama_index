@@ -20,7 +20,6 @@ Observability is now being handled via the [`instrumentation` module](./instrume
 
 A lot of the tooling and integrations mentioned in this page use our legacy `CallbackManager` or don't use `set_global_handler`. We've marked these integrations as such!
 
-
 ## Usage Pattern
 
 To toggle, you will generally just need to do the following:
@@ -35,7 +34,6 @@ set_global_handler("<handler_name>", **kwargs)
 Note that all `kwargs` to `set_global_handler` are passed to the underlying callback handler.
 
 And that's it! Executions will get seamlessly piped to downstream service and you'll be able to access features such as viewing execution traces of your application.
-
 
 ## Partner `One-Click` Integrations
 
@@ -74,11 +72,31 @@ llama_index.core.set_global_handler(
 
 ...
 ```
+
 #### Guides
 
 - [LlamaCloud Agent with LlamaTrace](https://github.com/run-llama/llamacloud-demo/blob/main/examples/tracing/llamacloud_tracing_phoenix.ipynb)
 
 ![](../../_static/integrations/arize_phoenix.png)
+
+### OpenLLMetry
+
+[OpenLLMetry](https://github.com/traceloop/openllmetry) is an open-source project based on OpenTelemetry for tracing and monitoring
+LLM applications. It connects to [all major observability platforms](https://www.traceloop.com/docs/openllmetry/integrations/introduction) and installs in minutes.
+
+#### Usage Pattern
+
+```python
+from traceloop.sdk import Traceloop
+
+Traceloop.init()
+```
+
+#### Guides
+
+- [OpenLLMetry](../../examples/callbacks/OpenLLMetry.ipynb)
+
+![](../../_static/integrations/openllmetry.png)
 
 ### Arize Phoenix (local)
 
@@ -116,6 +134,35 @@ llama_index.core.set_global_handler("arize_phoenix")
 - [Auto-Retrieval Guide with Pinecone and Arize Phoenix](https://docs.llamaindex.ai/en/latest/examples/vector_stores/pinecone_auto_retriever/?h=phoenix)
 - [Arize Phoenix Tracing Tutorial](https://colab.research.google.com/github/Arize-ai/phoenix/blob/main/tutorials/tracing/llama_index_tracing_tutorial.ipynb)
 
+### Literal AI
+
+[Literal AI](https://literalai.com/) is the go-to LLM evaluation and observability solution, enabling engineering and product teams to ship LLM applications reliably, faster and at scale. This is possible through a collaborative development cycle involving prompt engineering, LLM observability, LLM evaluation and LLM monitoring. Conversation Threads and Agent Runs can be automatically logged on Literal AI.
+
+The simplest way to get started and try out Literal AI is to signup on our [cloud instance](https://cloud.getliteral.ai/).
+You can then navigate to **Settings**, grab your API key, and start logging!
+
+#### Usage Pattern
+
+- Install the Literal AI Python SDK with `pip install literalai`
+- On your Literal AI project, go to **Settings** and grab your API key
+- If you are using a self-hosted instance of Literal AI, also make note of its base URL
+
+Then add the following lines to your applicative code :
+
+```python
+from llama_index.core import set_global_handler
+
+# You should provide your Literal AI API key and base url using the following environment variables:
+# LITERAL_API_KEY, LITERAL_API_URL
+set_global_handler("literalai")
+```
+
+#### Example Guides
+
+- [Literal AI integration with Llama Index](https://docs.getliteral.ai/integrations/llama-index)
+- [Build a Q&A application with LLamaIndex and monitor it with Literal AI](https://github.com/Chainlit/literal-cookbook/blob/main/python/llamaindex-integration)
+
+![](../../_static/integrations/literal_ai.gif)
 
 ## Other Partner `One-Click` Integrations (Legacy Modules)
 
@@ -199,25 +246,6 @@ storage_context = llama_index.core.global_handler.load_storage_context(
 
 - [Wandb Callback Handler](../../examples/callbacks/WandbCallbackHandler.ipynb)
 
-### OpenLLMetry
-
-[OpenLLMetry](https://github.com/traceloop/openllmetry) is an open-source project based on OpenTelemetry for tracing and monitoring
-LLM applications. It connects to [all major observability platforms](https://www.traceloop.com/docs/openllmetry/integrations/introduction) and installs in minutes.
-
-#### Usage Pattern
-
-```python
-from traceloop.sdk import Traceloop
-
-Traceloop.init()
-```
-
-#### Guides
-
-- [OpenLLMetry](../../examples/callbacks/OpenLLMetry.ipynb)
-
-![](../../_static/integrations/openllmetry.png)
-
 ### OpenInference
 
 [OpenInference](https://github.com/Arize-ai/open-inference-spec) is an open standard for capturing and storing AI model inferences. It enables experimentation, visualization, and evaluation of LLM applications using LLM observability solutions such as [Phoenix](https://github.com/Arize-ai/phoenix).
@@ -281,7 +309,7 @@ tru_query_engine.query("What did the author do growing up?")
 
 ### HoneyHive
 
-HoneyHive allows users to trace the execution flow of any LLM pipeline. Users can then debug and analyze their traces, or customize feedback on specific trace events to create evaluation or fine-tuning datasets from production.
+HoneyHive allows users to trace the execution flow of any LLM workflow. Users can then debug and analyze their traces, or customize feedback on specific trace events to create evaluation or fine-tuning datasets from production.
 
 #### Usage Pattern
 
@@ -291,7 +319,7 @@ from llama_index.core import set_global_handler
 set_global_handler(
     "honeyhive",
     project="My HoneyHive Project",
-    name="My LLM Pipeline Name",
+    name="My LLM Workflow Name",
     api_key="MY HONEYHIVE API KEY",
 )
 
@@ -303,7 +331,7 @@ from llama_index.core import Settings
 
 # hh_tracer = HoneyHiveLlamaIndexTracer(
 #     project="My HoneyHive Project",
-#     name="My LLM Pipeline Name",
+#     name="My LLM Workflow Name",
 #     api_key="MY HONEYHIVE API KEY",
 # )
 # Settings.callback_manager = CallbackManager([hh_tracer])
@@ -424,6 +452,42 @@ import llama_index.core
 llama_index.core.set_global_handler("simple")
 ```
 
+### MLflow
+
+[MLflow](https://mlflow.org/docs/latest/index.html) is an open-source platform, purpose-built to assist machine learning practitioners and teams in handling the complexities of the machine learning process. MLflow focuses on the full lifecycle for machine learning projects, ensuring that each phase is manageable, traceable, and reproducible.
+
+##### Install
+
+```shell
+pip install mlflow>=2.15 llama-index>=0.10.44
+```
+
+#### Usage Pattern
+
+```python
+import mlflow
+
+mlflow.llama_index.autolog()  # Enable mlflow tracing
+
+with mlflow.start_run() as run:
+    mlflow.llama_index.log_model(
+        index,
+        artifact_path="llama_index",
+        engine_type="query",  # Logged engine type for inference
+        input_example="hi",
+        registered_model_name="my_llama_index_vector_store",
+    )
+    model_uri = f"runs:/{run.info.run_id}/llama_index"
+
+predictions = mlflow.pyfunc.load_model(model_uri).predict("hi")
+print(f"Query engine prediction: {predictions}")
+```
+
+![](../../_static/integrations/mlflow.gif)
+
+#### Guides
+
+- [MLflow](https://mlflow.org/docs/latest/llms/llama-index/index.html)
 
 ## More observability
 
