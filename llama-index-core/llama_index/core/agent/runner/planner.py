@@ -106,7 +106,7 @@ class PlannerAgentState(AgentState):
 
 
 DEFAULT_INITIAL_PLAN_PROMPT = """\
-Think step-by-step. Given a task and a set of tools, create a comprehesive, end-to-end plan to accomplish the task.
+Think step-by-step. Given a task and a set of tools, create a comprehensive, end-to-end plan to accomplish the task.
 Keep in mind not every task needs to be decomposed into multiple sub-tasks if it is simple enough.
 The plan should end with a sub-task that can achieve the overall task.
 
@@ -136,7 +136,8 @@ Overall Task: {task}
 
 
 class StructuredPlannerAgent(BasePlanningAgentRunner):
-    """Structured Planner Agent runner.
+    """
+    Structured Planner Agent runner.
 
     Top-level agent orchestrator that can create tasks, run each step in a task,
     or run a task e2e. Stores state and keeps track of tasks.
@@ -144,7 +145,7 @@ class StructuredPlannerAgent(BasePlanningAgentRunner):
     Args:
         agent_worker (BaseAgentWorker): step executor
         chat_history (Optional[List[ChatMessage]], optional): chat history. Defaults to None.
-        state (Optional[AgentState], optional): agent state. Defaults to None.
+        state (Optional[PlannerAgentState], optional): agent state. Defaults to None.
         memory (Optional[BaseMemory], optional): memory. Defaults to None.
         llm (Optional[LLM], optional): LLM. Defaults to None.
         callback_manager (Optional[CallbackManager], optional): callback manager. Defaults to None.
@@ -171,7 +172,7 @@ class StructuredPlannerAgent(BasePlanningAgentRunner):
     ) -> None:
         """Initialize."""
         self.agent_worker = agent_worker
-        self.state = state or PlannerAgentState()
+        self.state: PlannerAgentState = state or PlannerAgentState()
         self.memory = memory or ChatMemoryBuffer.from_defaults(chat_history, llm=llm)
         self.tools = tools
         self.tool_retriever = tool_retriever
@@ -231,7 +232,9 @@ class StructuredPlannerAgent(BasePlanningAgentRunner):
         tools = self.get_tools(input)
         tools_str = ""
         for tool in tools:
-            tools_str += tool.metadata.name + ": " + tool.metadata.description + "\n"
+            tools_str += (
+                (tool.metadata.name or "") + ": " + tool.metadata.description + "\n"
+            )
 
         try:
             plan = self.llm.structured_predict(
@@ -273,7 +276,9 @@ class StructuredPlannerAgent(BasePlanningAgentRunner):
         tools = self.get_tools(input)
         tools_str = ""
         for tool in tools:
-            tools_str += tool.metadata.name + ": " + tool.metadata.description + "\n"
+            tools_str += (
+                (tool.metadata.name or "") + ": " + tool.metadata.description + "\n"
+            )
 
         try:
             plan = await self.llm.astructured_predict(
@@ -320,7 +325,7 @@ class StructuredPlannerAgent(BasePlanningAgentRunner):
         # gather completed sub-tasks and response pairs
         completed_outputs_str = ""
         for sub_task, task_output in completed_sub_task_pairs:
-            task_str = f"{sub_task.name}:\n" f"\t{task_output.output!s}\n"
+            task_str = f"{sub_task.name}:\n\t{task_output.output!s}\n"
             completed_outputs_str += task_str
 
         # get a string for the remaining sub-tasks
@@ -339,7 +344,9 @@ class StructuredPlannerAgent(BasePlanningAgentRunner):
         tools = self.get_tools(remaining_sub_tasks_str)
         tools_str = ""
         for tool in tools:
-            tools_str += tool.metadata.name + ": " + tool.metadata.description + "\n"
+            tools_str += (
+                (tool.metadata.name or "") + ": " + tool.metadata.description + "\n"
+            )
 
         # return the kwargs
         return {
@@ -425,6 +432,7 @@ class StructuredPlannerAgent(BasePlanningAgentRunner):
         task_id: str,
         mode: ChatResponseMode = ChatResponseMode.WAIT,
         tool_choice: Union[str, dict] = "auto",
+        **kwargs: Any,
     ) -> AGENT_CHAT_RESPONSE_TYPE:
         """Run a task."""
         while True:
@@ -450,6 +458,7 @@ class StructuredPlannerAgent(BasePlanningAgentRunner):
         task_id: str,
         mode: ChatResponseMode = ChatResponseMode.WAIT,
         tool_choice: Union[str, dict] = "auto",
+        **kwargs: Any,
     ) -> AGENT_CHAT_RESPONSE_TYPE:
         """Run a task."""
         while True:

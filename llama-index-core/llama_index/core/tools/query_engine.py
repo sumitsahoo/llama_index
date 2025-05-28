@@ -15,13 +15,15 @@ against a knowledge base and get back a natural language response.
 
 
 class QueryEngineTool(AsyncBaseTool):
-    """Query engine tool.
+    """
+    Query engine tool.
 
     A tool making use of a query engine.
 
     Args:
         query_engine (BaseQueryEngine): A query engine.
         metadata (ToolMetadata): The associated metadata of the query engine.
+
     """
 
     def __init__(
@@ -96,7 +98,7 @@ class QueryEngineTool(AsyncBaseTool):
         )
         return LlamaIndexTool.from_tool_config(tool_config=tool_config)
 
-    def _get_query_str(self, *args, **kwargs) -> str:
+    def _get_query_str(self, *args: Any, **kwargs: Any) -> str:
         if args is not None and len(args) > 0:
             query_str = str(args[0])
         elif kwargs is not None and "input" in kwargs:

@@ -32,7 +32,9 @@ def default_output_processor(
     local_vars = {"df": df, "pd": pd}
     global_vars = {"np": np}
 
-    output = parse_code_markdown(output, only_last=True)[0]
+    output = parse_code_markdown(output, only_last=True)
+    if not isinstance(output, str):
+        output = output[0]
 
     # NOTE: inspired from langchain's tool
     # see langchain.tools.python.tool (PythonAstREPLTool)
@@ -49,25 +51,34 @@ def default_output_processor(
         try:
             # str(pd.dataframe) will truncate output by display.max_colwidth
             # set width temporarily to extract more text
+            current_max_colwidth = pd.get_option("display.max_colwidth")
+            current_max_rows = pd.get_option("display.max_rows")
+            current_max_columns = pd.get_option("display.max_columns")
             if "max_colwidth" in output_kwargs:
                 pd.set_option("display.max_colwidth", output_kwargs["max_colwidth"])
+            if "max_rows" in output_kwargs:
+                pd.set_option("display.max_rows", output_kwargs["max_rows"])
+            if "max_columns" in output_kwargs:
+                pd.set_option("display.max_columns", output_kwargs["max_columns"])
             output_str = str(safe_eval(module_end_str, global_vars, local_vars))
-            pd.reset_option("display.max_colwidth")
+            pd.set_option("display.max_colwidth", current_max_colwidth)
+            pd.set_option("display.max_rows", current_max_rows)
+            pd.set_option("display.max_columns", current_max_columns)
             return output_str
 
         except Exception:
             raise
     except Exception as e:
         err_string = (
-            "There was an error running the output as Python code. "
-            f"Error message: {e}"
+            f"There was an error running the output as Python code. Error message: {e}"
         )
         traceback.print_exc()
         return err_string
 
 
 class PandasInstructionParser(ChainableOutputParser):
-    """Pandas instruction parser.
+    """
+    Pandas instruction parser.
 
     This 'output parser' takes in pandas instructions (in Python code) and
     executes them to return an output.

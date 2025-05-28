@@ -29,6 +29,7 @@ class MixedbreadAIRerank(BaseNodePostprocessor):
         timeout (Optional[float]): Timeout for API calls.
         httpx_client (Optional[httpx.Client]): Custom HTTPX client for synchronous requests.
         httpx_async_client (Optional[httpx.AsyncClient]): Custom HTTPX client for asynchronous requests.
+
     """
 
     model: str = Field(
@@ -52,6 +53,7 @@ class MixedbreadAIRerank(BaseNodePostprocessor):
         httpx_client: Optional[httpx.Client] = None,
         httpx_async_client: Optional[httpx.AsyncClient] = None,
     ):
+        super().__init__(top_n=top_n, model=model)
         try:
             api_key = api_key or os.environ["MXBAI_API_KEY"]
         except KeyError:
@@ -69,8 +71,6 @@ class MixedbreadAIRerank(BaseNodePostprocessor):
         self._request_options = (
             RequestOptions(max_retries=max_retries) if max_retries is not None else None
         )
-
-        super().__init__(top_n=top_n, model=model)
 
     @classmethod
     def class_name(cls) -> str:
@@ -90,6 +90,7 @@ class MixedbreadAIRerank(BaseNodePostprocessor):
 
         Returns:
             List[NodeWithScore]: Reranked list of nodes.
+
         """
         dispatcher.event(
             ReRankStartEvent(

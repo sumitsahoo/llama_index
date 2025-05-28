@@ -2,7 +2,7 @@ import json
 from typing import Any, Callable, Dict, List, Optional
 
 from llama_index.core.base.llms.types import ChatMessage, MessageRole
-from llama_index.core.bridge.pydantic import Field, root_validator
+from llama_index.core.bridge.pydantic import Field, model_validator
 from llama_index.core.llms.llm import LLM
 from llama_index.core.memory.types import (
     DEFAULT_CHAT_STORE_KEY,
@@ -16,23 +16,25 @@ DEFAULT_TOKEN_LIMIT = 3000
 
 
 class ChatMemoryBuffer(BaseChatStoreMemory):
-    """Simple buffer for storing chat history."""
+    """
+    Deprecated: Please use `llama_index.core.memory.Memory` instead.
+
+    Simple buffer for storing chat history.
+    """
 
     token_limit: int
     tokenizer_fn: Callable[[str], List] = Field(
-        # NOTE: mypy does not handle the typing here well, hence the cast
         default_factory=get_tokenizer,
         exclude=True,
     )
-    chat_store: BaseChatStore = Field(default_factory=SimpleChatStore)
-    chat_store_key: str = Field(default=DEFAULT_CHAT_STORE_KEY)
 
     @classmethod
     def class_name(cls) -> str:
         """Get class name."""
         return "ChatMemoryBuffer"
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
+    @classmethod
     def validate_memory(cls, values: dict) -> dict:
         # Validate token limit
         token_limit = values.get("token_limit", -1)
@@ -40,7 +42,7 @@ class ChatMemoryBuffer(BaseChatStoreMemory):
             raise ValueError("Token limit must be set and greater than 0.")
 
         # Validate tokenizer -- this avoids errors when loading from json/dict
-        tokenizer_fn = values.get("tokenizer_fn", None)
+        tokenizer_fn = values.get("tokenizer_fn")
         if tokenizer_fn is None:
             values["tokenizer_fn"] = get_tokenizer()
 
@@ -55,8 +57,12 @@ class ChatMemoryBuffer(BaseChatStoreMemory):
         chat_store_key: str = DEFAULT_CHAT_STORE_KEY,
         token_limit: Optional[int] = None,
         tokenizer_fn: Optional[Callable[[str], List]] = None,
+        **kwargs: Any,
     ) -> "ChatMemoryBuffer":
         """Create a chat memory buffer from an LLM."""
+        if kwargs:
+            raise ValueError(f"Unexpected kwargs: {kwargs}")
+
         if llm is not None:
             context_window = llm.metadata.context_window
             token_limit = token_limit or int(context_window * DEFAULT_TOKEN_LIMIT_RATIO)
@@ -95,11 +101,11 @@ class ChatMemoryBuffer(BaseChatStoreMemory):
         # NOTE: this handles backwards compatibility with the old chat history
         if "chat_history" in data:
             chat_history = data.pop("chat_history")
-            chat_store = SimpleChatStore(store={DEFAULT_CHAT_STORE_KEY: chat_history})
-            data["chat_store"] = chat_store
+            simple_store = SimpleChatStore(store={DEFAULT_CHAT_STORE_KEY: chat_history})
+            data["chat_store"] = simple_store
         elif "chat_store" in data:
-            chat_store = data.pop("chat_store")
-            chat_store = load_chat_store(chat_store)
+            chat_store_dict = data.pop("chat_store")
+            chat_store = load_chat_store(chat_store_dict)
             data["chat_store"] = chat_store
 
         return cls(**data)
@@ -120,15 +126,16 @@ class ChatMemoryBuffer(BaseChatStoreMemory):
 
         while token_count > self.token_limit and message_count > 1:
             message_count -= 1
-            if chat_history[-message_count].role == MessageRole.TOOL:
-                # all tool messages should be preceded by an assistant message
-                # if we remove a tool message, we need to remove the assistant message too
-                message_count -= 1
-
-            if chat_history[-message_count].role == MessageRole.ASSISTANT:
+            while chat_history[-message_count].role in (
+                MessageRole.TOOL,
+                MessageRole.ASSISTANT,
+            ):
                 # we cannot have an assistant message at the start of the chat history
                 # if after removal of the first, we have an assistant message,
                 # we need to remove the assistant message too
+                #
+                # all tool messages should be preceded by an assistant message
+                # if we remove a tool message, we need to remove the assistant message too
                 message_count -= 1
 
             cur_messages = chat_history[-message_count:]

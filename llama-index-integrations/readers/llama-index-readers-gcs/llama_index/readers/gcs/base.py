@@ -4,9 +4,11 @@ GCS file and directory reader.
 A loader that fetches a file or iterates through a directory on Google Cloud Storage (GCS).
 
 """
+
 import json
 import logging
 from typing import Callable, Dict, List, Optional, Union
+from typing_extensions import Annotated
 from datetime import datetime
 from pathlib import Path
 
@@ -19,12 +21,18 @@ from llama_index.core.readers.base import (
     BaseReader,
 )
 from llama_index.core.schema import Document
-from llama_index.core.bridge.pydantic import Field
+from llama_index.core.bridge.pydantic import Field, WithJsonSchema
 
 # Set up logging
 logger = logging.getLogger(__name__)
 
 SCOPES = ["https://www.googleapis.com/auth/devstorage.read_only"]
+
+
+FileMetadataCallable = Annotated[
+    Callable[[str], Dict],
+    WithJsonSchema({"type": "string"}),
+]
 
 
 class GCSReader(BasePydanticReader, ResourcesReaderMixin, FileSystemReaderMixin):
@@ -47,6 +55,7 @@ class GCSReader(BasePydanticReader, ResourcesReaderMixin, FileSystemReaderMixin)
         service_account_key (Optional[Dict[str, str]]): Service account key as a dictionary.
         service_account_key_json (Optional[str]): Service account key as a JSON string.
         service_account_key_path (Optional[str]): Path to the service account key file.
+
     """
 
     is_remote: bool = True
@@ -61,7 +70,7 @@ class GCSReader(BasePydanticReader, ResourcesReaderMixin, FileSystemReaderMixin)
     required_exts: Optional[List[str]] = None
     filename_as_id: bool = True
     num_files_limit: Optional[int] = None
-    file_metadata: Optional[Callable[[str], Dict]] = Field(default=None, exclude=True)
+    file_metadata: Optional[FileMetadataCallable] = Field(default=None, exclude=True)
     service_account_key: Optional[Dict[str, str]] = None
     service_account_key_json: Optional[str] = None
     service_account_key_path: Optional[str] = None
@@ -83,6 +92,7 @@ class GCSReader(BasePydanticReader, ResourcesReaderMixin, FileSystemReaderMixin)
         Raises:
             ValueError: If no valid authentication method is provided.
             DefaultCredentialsError: If there's an issue with the provided credentials.
+
         """
         from gcsfs import GCSFileSystem
 
@@ -119,6 +129,7 @@ class GCSReader(BasePydanticReader, ResourcesReaderMixin, FileSystemReaderMixin)
 
         Returns:
             SimpleDirectoryReader: A configured SimpleDirectoryReader for GCS.
+
         """
         gcsfs = self._get_gcsfs()
 
@@ -151,6 +162,7 @@ class GCSReader(BasePydanticReader, ResourcesReaderMixin, FileSystemReaderMixin)
 
         Raises:
             Exception: If there's an error loading the data.
+
         """
         try:
             logger.info(f"Loading data from GCS bucket: {self.bucket}")
@@ -171,6 +183,7 @@ class GCSReader(BasePydanticReader, ResourcesReaderMixin, FileSystemReaderMixin)
 
         Raises:
             Exception: If there's an error listing the resources.
+
         """
         try:
             logger.info(f"Listing resources in GCS bucket: {self.bucket}")
@@ -192,6 +205,7 @@ class GCSReader(BasePydanticReader, ResourcesReaderMixin, FileSystemReaderMixin)
 
         Raises:
             Exception: If there's an error retrieving the resource information.
+
         """
         try:
             logger.info(f"Getting info for resource: {resource_id}")
@@ -233,6 +247,7 @@ class GCSReader(BasePydanticReader, ResourcesReaderMixin, FileSystemReaderMixin)
 
         Raises:
             Exception: If there's an error loading the resource.
+
         """
         try:
             logger.info(f"Loading resource: {resource_id}")
@@ -256,6 +271,7 @@ class GCSReader(BasePydanticReader, ResourcesReaderMixin, FileSystemReaderMixin)
 
         Raises:
             Exception: If there's an error reading the file content.
+
         """
         try:
             logger.info(f"Reading file content: {input_file}")

@@ -1,17 +1,26 @@
 import uuid
 from abc import abstractmethod
 from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
-
-import pandas as pd
 from tqdm import tqdm
 
 from llama_index.core.async_utils import DEFAULT_NUM_WORKERS, run_jobs, asyncio_run
 from llama_index.core.base.response.schema import PydanticResponse
-from llama_index.core.bridge.pydantic import BaseModel, Field, ValidationError
+from llama_index.core.bridge.pydantic import (
+    BaseModel,
+    Field,
+    ValidationError,
+    ConfigDict,
+)
 from llama_index.core.callbacks.base import CallbackManager
 from llama_index.core.llms.llm import LLM
 from llama_index.core.node_parser.interface import NodeParser
-from llama_index.core.schema import BaseNode, Document, IndexNode, TextNode
+from llama_index.core.schema import (
+    BaseNode,
+    Document,
+    IndexNode,
+    MetadataMode,
+    TextNode,
+)
 from llama_index.core.utils import get_tqdm_iterable
 
 DEFAULT_SUMMARY_QUERY_STR = """\
@@ -48,17 +57,15 @@ class TableOutput(BaseModel):
 class Element(BaseModel):
     """Element object."""
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     id: str
     type: str
     element: Any
     title_level: Optional[int] = None
     table_output: Optional[TableOutput] = None
-    table: Optional[pd.DataFrame] = None
+    table: Optional[Any] = None
     markdown: Optional[str] = None
     page_number: Optional[int] = None
-
-    class Config:
-        arbitrary_types_allowed = True
 
 
 class BaseElementNodeParser(NodeParser):
@@ -69,7 +76,7 @@ class BaseElementNodeParser(NodeParser):
     """
 
     callback_manager: CallbackManager = Field(
-        default_factory=CallbackManager, exclude=True
+        default_factory=lambda: CallbackManager([]), exclude=True
     )
     llm: Optional[LLM] = Field(
         default=None, description="LLM model to use for summarization."
@@ -190,7 +197,10 @@ class BaseElementNodeParser(NodeParser):
             query_engine = index.as_query_engine(llm=llm, output_cls=TableOutput)
             try:
                 response = await query_engine.aquery(summary_query_str)
-                return cast(PydanticResponse, response).response
+                if isinstance(response, PydanticResponse):
+                    return response.response
+                else:
+                    raise ValueError(f"Expected PydanticResponse, got {type(response)}")
             except (ValidationError, ValueError):
                 # There was a pydantic validation error, so we will run with text completion
                 # fill in the summary and leave other fields blank
@@ -202,9 +212,7 @@ class BaseElementNodeParser(NodeParser):
             _get_table_output(table_context, self.summary_query_str)
             for table_context in table_context_list
         ]
-        summary_co = run_jobs(
-            summary_jobs, show_progress=self.show_progress, workers=self.num_workers
-        )
+        summary_co = run_jobs(summary_jobs, workers=self.num_workers)
         summary_outputs = asyncio_run(summary_co)
         for element, summary_output in zip(elements, summary_outputs):
             element.table_output = summary_output
@@ -217,20 +225,23 @@ class BaseElementNodeParser(NodeParser):
         llm = self.llm or Settings.llm
 
         table_context_list = []
-        for idx, element in tqdm(enumerate(elements)):
-            if element.type not in ("table", "table_text"):
-                continue
-            table_context = str(element.element)
-            if idx > 0 and str(elements[idx - 1].element).lower().strip().startswith(
-                "table"
-            ):
-                table_context = str(elements[idx - 1].element) + "\n" + table_context
-            if idx < len(elements) + 1 and str(
-                elements[idx - 1].element
-            ).lower().strip().startswith("table"):
-                table_context += "\n" + str(elements[idx + 1].element)
+        if elements:
+            for idx, element in tqdm(enumerate(elements)):
+                if element.type not in ("table", "table_text"):
+                    continue
+                table_context = str(element.element)
+                if idx > 0 and str(
+                    elements[idx - 1].element
+                ).lower().strip().startswith("table"):
+                    table_context = (
+                        str(elements[idx - 1].element) + "\n" + table_context
+                    )
+                if idx < len(elements) + 1 and str(
+                    elements[idx - 1].element
+                ).lower().strip().startswith("table"):
+                    table_context += "\n" + str(elements[idx + 1].element)
 
-            table_context_list.append(table_context)
+                table_context_list.append(table_context)
 
         async def _get_table_output(table_context: str, summary_query_str: str) -> Any:
             index = SummaryIndex.from_documents(
@@ -251,16 +262,15 @@ class BaseElementNodeParser(NodeParser):
             _get_table_output(table_context, self.summary_query_str)
             for table_context in table_context_list
         ]
-        summary_outputs = await run_jobs(
-            summary_jobs, show_progress=self.show_progress, workers=self.num_workers
-        )
+        summary_outputs = await run_jobs(summary_jobs, workers=self.num_workers)
         for element, summary_output in zip(elements, summary_outputs):
             element.table_output = summary_output
 
     def get_base_nodes_and_mappings(
         self, nodes: List[BaseNode]
     ) -> Tuple[List[BaseNode], Dict]:
-        """Get base nodes and mappings.
+        """
+        Get base nodes and mappings.
 
         Given a list of nodes and IndexNode objects, return the base nodes and a mapping
         from index id to child nodes (which are excluded from the base nodes).
@@ -317,11 +327,18 @@ class BaseElementNodeParser(NodeParser):
         ref_doc_text: Optional[str] = None,
     ) -> List[BaseNode]:
         """Get nodes and mappings."""
+        try:
+            import pandas as pd
+        except ImportError:
+            raise ImportError(
+                "pandas is required for this function. Please install it with `pip install pandas`."
+            )
+
         from llama_index.core.node_parser import SentenceSplitter
 
         node_parser = self.nested_node_parser or SentenceSplitter()
 
-        nodes = []
+        nodes: List[BaseNode] = []
         cur_text_el_buffer: List[str] = []
         for element in elements:
             if element.type == "table" or element.type == "table_text":
@@ -377,11 +394,11 @@ class BaseElementNodeParser(NodeParser):
                     if start_char_idx >= 0:
                         end_char_idx = start_char_idx + len(str(element.element))
                     else:
-                        start_char_idx = None
-                        end_char_idx = None
+                        start_char_idx = None  # type: ignore
+                        end_char_idx = None  # type: ignore
                 else:
-                    start_char_idx = None
-                    end_char_idx = None
+                    start_char_idx = None  # type: ignore
+                    end_char_idx = None  # type: ignore
 
                 # shared index_id and node_id
                 node_id = str(uuid.uuid4())
@@ -438,14 +455,18 @@ class BaseElementNodeParser(NodeParser):
                 node.excluded_llm_metadata_keys = (
                     node_inherited.excluded_llm_metadata_keys
                 )
-        return [node for node in nodes if len(node.text) > 0]
+        return [
+            node
+            for node in nodes
+            if len(node.get_content(metadata_mode=MetadataMode.NONE)) > 0
+        ]
 
-    def __call__(self, nodes: List[BaseNode], **kwargs: Any) -> List[BaseNode]:
-        nodes = self.get_nodes_from_documents(nodes, **kwargs)
+    def __call__(self, nodes: Sequence[BaseNode], **kwargs: Any) -> List[BaseNode]:
+        nodes = self.get_nodes_from_documents(nodes, **kwargs)  # type: ignore
         nodes, objects = self.get_nodes_and_objects(nodes)
-        return nodes + objects
+        return nodes + objects  # type: ignore
 
-    async def acall(self, nodes: List[BaseNode], **kwargs: Any) -> List[BaseNode]:
-        nodes = await self.aget_nodes_from_documents(nodes, **kwargs)
+    async def acall(self, nodes: Sequence[BaseNode], **kwargs: Any) -> List[BaseNode]:
+        nodes = await self.aget_nodes_from_documents(nodes, **kwargs)  # type: ignore
         nodes, objects = self.get_nodes_and_objects(nodes)
-        return nodes + objects
+        return nodes + objects  # type: ignore

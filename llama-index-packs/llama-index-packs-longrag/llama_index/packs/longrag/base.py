@@ -4,6 +4,14 @@ from llama_index.core import SimpleDirectoryReader, VectorStoreIndex
 from llama_index.core.async_utils import asyncio_run
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.retrievers import BaseRetriever
+from llama_index.core.workflow import (
+    Event,
+    Workflow,
+    step,
+    StartEvent,
+    StopEvent,
+    Context,
+)
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.schema import (
     QueryBundle,
@@ -15,18 +23,9 @@ from llama_index.core.vector_stores.types import (
     VectorStoreQuery,
     BasePydanticVectorStore,
 )
-from llama_index.core.settings import (
-    Settings,
-    embed_model_from_settings_or_context,
-    llm_from_settings_or_context,
-)
-from llama_index.core.workflow import (
-    Context,
-    Workflow,
-    StartEvent,
-    StopEvent,
-    step,
-    Event,
+from llama_index.core.settings import Settings
+from llama_index.core.vector_stores.types import (
+    VectorStoreQuery,
 )
 from llama_index.core.llama_pack.base import BaseLlamaPack
 from llama_index.core.llms import LLM
@@ -38,7 +37,8 @@ DEFAULT_TOP_K = 8
 
 
 def split_doc(chunk_size: int, documents: t.List[BaseNode]) -> t.List[TextNode]:
-    """Splits documents into smaller pieces.
+    """
+    Splits documents into smaller pieces.
 
     Args:
         chunk_size (int): Chunk size
@@ -46,6 +46,7 @@ def split_doc(chunk_size: int, documents: t.List[BaseNode]) -> t.List[TextNode]:
 
     Returns:
         t.List[TextNode]: Smaller chunks
+
     """
     # split docs into tokens
     text_parser = SentenceSplitter(chunk_size=chunk_size)
@@ -57,12 +58,14 @@ def group_docs(
     adj: t.Dict[str, t.List[str]],
     max_group_size: t.Optional[int] = DEFAULT_MAX_GROUP_SIZE,
 ) -> t.Set[t.FrozenSet[str]]:
-    """Groups documents.
+    """
+    Groups documents.
 
     Args:
         nodes (List[str]): documents IDs
         adj (Dict[str, List[str]]): related documents for each document; id -> list of doc strings
         max_group_size (Optional[int], optional): max group size, None if no max group size. Defaults to DEFAULT_MAX_GROUP_SIZE.
+
     """
     docs = sorted(nodes, key=lambda node: len(adj[node]))
     groups = set()  # set of set of IDs
@@ -89,7 +92,8 @@ def group_docs(
 def get_grouped_docs(
     nodes: t.List[TextNode], max_group_size: t.Optional[int] = DEFAULT_MAX_GROUP_SIZE
 ) -> t.List[TextNode]:
-    """Gets list of documents that are grouped.
+    """
+    Gets list of documents that are grouped.
 
     Args:
         nodes (t.List[TextNode]): Input list
@@ -97,6 +101,7 @@ def get_grouped_docs(
 
     Returns:
         t.List[TextNode]: Output list
+
     """
     # node IDs
     nodes_str = [node.id_ for node in nodes]
@@ -132,13 +137,15 @@ class LongRAGRetriever(BaseRetriever):
         vector_store: BasePydanticVectorStore,
         similarity_top_k: int = DEFAULT_TOP_K,
     ) -> None:
-        """Constructor.
+        """
+        Constructor.
 
         Args:
             grouped_nodes (t.List[TextNode]): Long retrieval units, nodes with docs grouped together based on relationships
             small_toks (t.List[TextNode]): Smaller tokens
             embed_model (BaseEmbedding, optional): Embed model. Defaults to None.
             similarity_top_k (int, optional): Similarity top k. Defaults to 8.
+
         """
         self._grouped_nodes = grouped_nodes
         self._grouped_nodes_dict = {node.id_: node for node in grouped_nodes}
@@ -147,16 +154,18 @@ class LongRAGRetriever(BaseRetriever):
 
         self._similarity_top_k = similarity_top_k
         self._vec_store = vector_store
-        self._embed_model = embed_model_from_settings_or_context(Settings, None)
+        self._embed_model = Settings.embed_model
 
     def _retrieve(self, query_bundle: QueryBundle) -> t.List[NodeWithScore]:
-        """Retrieves.
+        """
+        Retrieves.
 
         Args:
             query_bundle (QueryBundle): query bundle
 
         Returns:
             t.List[NodeWithScore]: nodes with scores
+
         """
         # make query
         query_embedding = self._embed_model.get_query_embedding(query_bundle.query_str)
@@ -203,7 +212,8 @@ class LongRAGWorkflow(Workflow):
 
     @step()
     async def ingest(self, ev: StartEvent) -> t.Optional[LoadNodeEvent]:
-        """Ingestion step.
+        """
+        Ingestion step.
 
         Args:
             ctx (Context): Context
@@ -211,6 +221,7 @@ class LongRAGWorkflow(Workflow):
 
         Returns:
             StopEvent | None: stop event with result
+
         """
         data_dir: str = ev.get("data_dir")
         llm: LLM = ev.get("llm")
@@ -255,7 +266,8 @@ class LongRAGWorkflow(Workflow):
 
     @step(pass_context=True)
     async def make_query_engine(self, ctx: Context, ev: LoadNodeEvent) -> StopEvent:
-        """Query engine construction step.
+        """
+        Query engine construction step.
 
         Args:
             ctx (Context): context
@@ -263,6 +275,7 @@ class LongRAGWorkflow(Workflow):
 
         Returns:
             StopEvent: stop event
+
         """
         # make retriever and query engine
         retriever = LongRAGRetriever(
@@ -284,7 +297,8 @@ class LongRAGWorkflow(Workflow):
 
     @step(pass_context=True)
     async def query(self, ctx: Context, ev: StartEvent) -> t.Optional[StopEvent]:
-        """Query step.
+        """
+        Query step.
 
         Args:
             ctx (Context): context
@@ -292,6 +306,7 @@ class LongRAGWorkflow(Workflow):
 
         Returns:
             StopEvent | None: stop event with result
+
         """
         query_str: t.Optional[str] = ev.get("query_str")
 
@@ -305,7 +320,8 @@ class LongRAGWorkflow(Workflow):
 
 
 class LongRAGPack(BaseLlamaPack):
-    """Implements Long RAG.
+    """
+    Implements Long RAG.
 
     This implementation is based on the following paper: https://arxiv.org/pdf/2406.15319
     """
@@ -321,7 +337,8 @@ class LongRAGPack(BaseLlamaPack):
         index_kwargs: t.Optional[t.Dict[str, t.Any]] = None,
         verbose: bool = False,
     ):
-        """Constructor.
+        """
+        Constructor.
 
         Args:
             data_dir (str): Data directory
@@ -332,13 +349,14 @@ class LongRAGPack(BaseLlamaPack):
             index (Optional[VectorStoreIndex], optional): Vector index to use (from persist dir). If None, creates a new vector index. Defaults to None
             index_kwargs (Optional[Dict[str, Any]], optional): Kwargs to use when constructing VectorStoreIndex. Defaults to None.
             verbose (bool, Optional): Verbose mode. Defaults to False
+
         """
         # initialize workflow
         self._wf = LongRAGWorkflow(verbose=verbose)
 
         # initialize vars
         self._data_dir = data_dir
-        self._llm = llm or llm_from_settings_or_context(Settings, None)
+        self._llm = llm or Settings.llm
         self._chunk_size = chunk_size
         self._similarity_top_k = similarity_top_k
         self._small_chunk_size = small_chunk_size

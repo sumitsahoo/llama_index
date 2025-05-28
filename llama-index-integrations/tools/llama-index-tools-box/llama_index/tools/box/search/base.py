@@ -44,6 +44,7 @@ class BoxSearchOptions:
             types to filter by.
         limit (Optional[int]): The maximum number of search results to return.
         offset (Optional[int]): The offset to start results from (for pagination).
+
     """
 
     scope: Optional[SearchForContentScope] = None
@@ -57,6 +58,32 @@ class BoxSearchOptions:
     content_types: Optional[List[SearchForContentContentTypes]] = None
     limit: Optional[int] = None
     offset: Optional[int] = None
+
+    def __init__(
+        self,
+        scope: Optional[SearchForContentScope] = None,
+        file_extensions: Optional[List[str]] = None,
+        created_at_range: Optional[List[str]] = None,
+        updated_at_range: Optional[List[str]] = None,
+        size_range: Optional[List[int]] = None,
+        owner_user_ids: Optional[List[str]] = None,
+        recent_updater_user_ids: Optional[List[str]] = None,
+        ancestor_folder_ids: Optional[List[str]] = None,
+        content_types: Optional[List[SearchForContentContentTypes]] = None,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+    ) -> None:
+        self.scope = scope
+        self.file_extensions = file_extensions
+        self.created_at_range = created_at_range
+        self.updated_at_range = updated_at_range
+        self.size_range = size_range
+        self.owner_user_ids = owner_user_ids
+        self.recent_updater_user_ids = recent_updater_user_ids
+        self.ancestor_folder_ids = ancestor_folder_ids
+        self.content_types = content_types
+        self.limit = limit
+        self.offset = offset
 
 
 class BoxSearchToolSpec(BaseToolSpec):
@@ -77,6 +104,7 @@ class BoxSearchToolSpec(BaseToolSpec):
         box_search(query: str) -> List[Document]:
             Performs a search for Box resources based on the provided query and configured
             search options. Returns a list of `Document` objects representing the found resources.
+
     """
 
     spec_functions = ["box_search"]
@@ -94,6 +122,7 @@ class BoxSearchToolSpec(BaseToolSpec):
             box_client (BoxClient): An authenticated Box API client.
             options (BoxSearchOptions, optional): An instance of `BoxSearchOptions` containing search options.
                 Defaults to `BoxSearchOptions()`.
+
         """
         self._box_client = add_extra_header_to_box_client(box_client)
         self._options = options
@@ -114,6 +143,7 @@ class BoxSearchToolSpec(BaseToolSpec):
 
         Returns:
             List[Document]: A list of `Document` objects representing the found Box resources.
+
         """
         box_check_connection(self._box_client)
 

@@ -21,7 +21,8 @@ DEFAULT_PALM_MODEL = "models/text-bison-001"
 
 
 class PaLM(CustomLLM):
-    """PaLM LLM.
+    """
+    PaLM LLM.
 
     Examples:
         `pip install llama-index-llms-palm`
@@ -51,6 +52,7 @@ class PaLM(CustomLLM):
         response = llm.complete("Your prompt text here.")
         print(str(response))
         ```
+
     """
 
     model_name: str = Field(
@@ -92,10 +94,10 @@ class PaLM(CustomLLM):
             )
 
         model_name = model_name
-        self._model = models_dict[model_name]
+        model = models_dict[model_name]
 
         # get num_output
-        num_output = num_output or self._model.output_token_limit
+        num_output = num_output or model.output_token_limit
 
         generate_kwargs = generate_kwargs or {}
         super().__init__(
@@ -109,6 +111,7 @@ class PaLM(CustomLLM):
             pydantic_program_mode=pydantic_program_mode,
             output_parser=output_parser,
         )
+        self._model = model
 
     @classmethod
     def class_name(cls) -> str:
@@ -129,7 +132,8 @@ class PaLM(CustomLLM):
     def complete(
         self, prompt: str, formatted: bool = False, **kwargs: Any
     ) -> CompletionResponse:
-        """Predict the answer to a query.
+        """
+        Predict the answer to a query.
 
         Args:
             prompt (str): Prompt to use for prediction.
@@ -149,7 +153,8 @@ class PaLM(CustomLLM):
     def stream_complete(
         self, prompt: str, formatted: bool = False, **kwargs: Any
     ) -> CompletionResponseGen:
-        """Stream the answer to a query.
+        """
+        Stream the answer to a query.
 
         NOTE: this is a beta feature. Will try to build or use
         better abstractions about response handling.

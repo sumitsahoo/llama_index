@@ -4,14 +4,8 @@ from llama_index.core.base.embeddings.base import (
     DEFAULT_EMBED_BATCH_SIZE,
     BaseEmbedding,
 )
-from llama_index.core.bridge.pydantic import Field, PrivateAttr
+from llama_index.core.bridge.pydantic import Field, PrivateAttr, SecretStr
 
-# Import SecretStr directly from pydantic
-# since there is not one in llama_index.core.bridge.pydantic
-try:
-    from pydantic.v1 import SecretStr
-except ImportError:
-    from pydantic import SecretStr
 from llama_index.core.callbacks.base import CallbackManager
 from llama_index.embeddings.ibm.utils import (
     resolve_watsonx_credentials,
@@ -40,6 +34,7 @@ class WatsonxEmbeddings(BaseEmbedding):
             project_id="*****",
         )
         ```
+
     """
 
     model_id: str = Field(
@@ -109,6 +104,12 @@ class WatsonxEmbeddings(BaseEmbedding):
         allow_mutation=False,
     )
 
+    # Enabled by default since IBM watsonx SDK 1.1.2 but it can cause problems
+    # in environments where long-running connections are not supported.
+    persistent_connection: bool = Field(
+        default=True, description="Use persistent connection"
+    )
+
     _embed_model: Embeddings = PrivateAttr()
 
     def __init__(
@@ -127,6 +128,7 @@ class WatsonxEmbeddings(BaseEmbedding):
         version: Optional[str] = None,
         verify: Union[str, bool, None] = None,
         api_client: Optional[APIClient] = None,
+        persistent_connection: bool = True,
         callback_manager: Optional[CallbackManager] = None,
         **kwargs: Any,
     ):
@@ -146,19 +148,35 @@ class WatsonxEmbeddings(BaseEmbedding):
                 instance_id=instance_id,
             )
 
+        url = creds.get("url").get_secret_value() if creds.get("url") else None
+        apikey = creds.get("apikey").get_secret_value() if creds.get("apikey") else None
+        token = creds.get("token").get_secret_value() if creds.get("token") else None
+        password = (
+            creds.get("password").get_secret_value() if creds.get("password") else None
+        )
+        username = (
+            creds.get("username").get_secret_value() if creds.get("username") else None
+        )
+        instance_id = (
+            creds.get("instance_id").get_secret_value()
+            if creds.get("instance_id")
+            else None
+        )
+
         super().__init__(
             model_id=model_id,
             truncate_input_tokens=truncate_input_tokens,
             project_id=project_id,
             space_id=space_id,
-            url=creds.get("url"),
-            apikey=creds.get("apikey"),
-            token=creds.get("token"),
-            password=creds.get("password"),
-            username=creds.get("username"),
-            instance_id=creds.get("instance_id"),
+            url=url,
+            apikey=apikey,
+            token=token,
+            password=password,
+            username=username,
+            instance_id=instance_id,
             version=version,
             verify=verify,
+            persistent_connection=persistent_connection,
             callback_manager=callback_manager,
             embed_batch_size=embed_batch_size,
             **kwargs,
@@ -181,6 +199,7 @@ class WatsonxEmbeddings(BaseEmbedding):
             project_id=self.project_id,
             space_id=self.space_id,
             api_client=api_client,
+            persistent_connection=self.persistent_connection,
         )
 
     class Config:

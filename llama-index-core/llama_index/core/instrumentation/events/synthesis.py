@@ -6,50 +6,56 @@ from llama_index.core.schema import QueryType
 
 
 class SynthesizeStartEvent(BaseEvent):
-    """SynthesizeStartEvent.
+    """
+    SynthesizeStartEvent.
 
     Args:
         query (QueryType): Query as a string or query bundle.
+
     """
 
     query: QueryType
 
     @classmethod
-    def class_name(cls):
+    def class_name(cls) -> str:
         """Class name."""
         return "SynthesizeStartEvent"
 
 
 class SynthesizeEndEvent(BaseEvent):
-    """SynthesizeEndEvent.
+    """
+    SynthesizeEndEvent.
 
     Args:
         query (QueryType): Query as a string or query bundle.
         response (RESPONSE_TYPE): Response.
+
     """
 
     query: QueryType
     response: RESPONSE_TYPE
 
     @classmethod
-    def class_name(cls):
+    def class_name(cls) -> str:
         """Class name."""
         return "SynthesizeEndEvent"
 
 
 class GetResponseStartEvent(BaseEvent):
-    """GetResponseStartEvent.
+    """
+    GetResponseStartEvent.
 
     Args:
         query_str (str): Query string.
         text_chunks (List[str]): List of text chunks.
+
     """
 
     query_str: str
     text_chunks: List[str]
 
     @classmethod
-    def class_name(cls):
+    def class_name(cls) -> str:
         """Class name."""
         return "GetResponseStartEvent"
 
@@ -61,6 +67,6 @@ class GetResponseEndEvent(BaseEvent):
     # response: RESPONSE_TEXT_TYPE
 
     @classmethod
-    def class_name(cls):
+    def class_name(cls) -> str:
         """Class name."""
         return "GetResponseEndEvent"

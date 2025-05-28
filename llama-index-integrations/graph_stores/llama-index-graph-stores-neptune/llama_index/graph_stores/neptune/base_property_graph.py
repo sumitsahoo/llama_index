@@ -16,6 +16,7 @@ from .neptune import remove_empty_values, refresh_schema
 
 logger = logging.getLogger(__name__)
 BASE_ENTITY_LABEL = "__Entity__"
+BASE_NODE_LABEL = "__Node__"
 
 
 class NeptuneBasePropertyGraph(PropertyGraphStore):
@@ -31,15 +32,20 @@ class NeptuneBasePropertyGraph(PropertyGraphStore):
     def client(self) -> Any:
         return self._client
 
-    def get(self, properties: Dict = None, ids: List[str] = None) -> List[LabelledNode]:
-        """Get the nodes from the graph.
+    def get(
+        self, properties: Dict = None, ids: List[str] = None, exact_match: bool = True
+    ) -> List[LabelledNode]:
+        """
+        Get the nodes from the graph.
 
         Args:
             properties (Dict | None, optional): The properties to retrieve. Defaults to None.
             ids (List[str] | None, optional): A list of ids to find in the graph. Defaults to None.
+            exact_match (bool, optional): Whether to do exact match on properties. Defaults to True.
 
         Returns:
             List[LabelledNode]: A list of nodes returned
+
         """
         cypher_statement = "MATCH (e) "
 
@@ -48,7 +54,10 @@ class NeptuneBasePropertyGraph(PropertyGraphStore):
             cypher_statement += "WHERE "
 
         if ids:
-            cypher_statement += "e.id in $ids "
+            if exact_match:
+                cypher_statement += "e.id IN $ids "
+            else:
+                cypher_statement += "WHERE size([x IN $ids where toLower(e.id) CONTAINS toLower(x)]) > 0 "
             params["ids"] = ids
 
         if properties:
@@ -103,7 +112,8 @@ class NeptuneBasePropertyGraph(PropertyGraphStore):
         properties: Optional[dict] = None,
         ids: Optional[List[str]] = None,
     ) -> List[Triplet]:
-        """Get the triplets of the entities in the graph.
+        """
+        Get the triplets of the entities in the graph.
 
         Args:
             entity_names (Optional[List[str]], optional): The entity names to find. Defaults to None.
@@ -113,6 +123,7 @@ class NeptuneBasePropertyGraph(PropertyGraphStore):
 
         Returns:
             List[Triplet]: A list of triples
+
         """
         cypher_statement = f"MATCH (e:`{BASE_ENTITY_LABEL}`) "
 
@@ -137,7 +148,7 @@ class NeptuneBasePropertyGraph(PropertyGraphStore):
 
         return_statement = f"""
             WITH e
-            MATCH (e)-[r{':`' + '`|`'.join(relation_names) + '`' if relation_names else ''}]->(t:{BASE_ENTITY_LABEL})
+            MATCH (e)-[r{":`" + "`|`".join(relation_names) + "`" if relation_names else ""}]->(t:{BASE_ENTITY_LABEL})
             RETURN e.name AS source_id, [l in labels(e) WHERE l <> '{BASE_ENTITY_LABEL}' | l][0] AS source_type,
                    e{{.* , embedding: Null, name: Null}} AS source_properties,
                    type(r) AS type,
@@ -177,7 +188,8 @@ class NeptuneBasePropertyGraph(PropertyGraphStore):
         limit: int = 30,
         ignore_rels: List[str] = None,
     ) -> List[Tuple[Any]]:
-        """Get a depth aware map of relations.
+        """
+        Get a depth aware map of relations.
 
         Args:
             graph_nodes (List[LabelledNode]): The nodes
@@ -187,6 +199,7 @@ class NeptuneBasePropertyGraph(PropertyGraphStore):
 
         Returns:
             List[Tuple[LabelledNode | Relation]]: The node/relationship pairs
+
         """
         triples = []
 
@@ -253,10 +266,12 @@ class NeptuneBasePropertyGraph(PropertyGraphStore):
         raise NotImplementedError
 
     def upsert_relations(self, relations: List[Relation]) -> None:
-        """Upsert relations in the graph.
+        """
+        Upsert relations in the graph.
 
         Args:
             relations (List[Relation]): Relations to upsert
+
         """
         for r in relations:
             self.structured_query(
@@ -282,13 +297,15 @@ class NeptuneBasePropertyGraph(PropertyGraphStore):
         properties: Dict = None,
         ids: List[str] = None,
     ) -> None:
-        """Delete data matching the criteria.
+        """
+        Delete data matching the criteria.
 
         Args:
             entity_names (List[str] | None, optional): The entity names to delete. Defaults to None.
             relation_names (List[str] | None, optional): The relation names to delete. Defaults to None.
             properties (Dict | None, optional): The properties to remove. Defaults to None.
             ids (List[str] | None, optional): The ids to remove. Defaults to None.
+
         """
         if entity_names:
             self.structured_query(
@@ -321,7 +338,8 @@ class NeptuneBasePropertyGraph(PropertyGraphStore):
         raise NotImplementedError
 
     def query(self, query: str, params: dict = {}) -> Dict[str, Any]:
-        """Run the query.
+        """
+        Run the query.
 
         Args:
             query (str): The query to run
@@ -329,6 +347,7 @@ class NeptuneBasePropertyGraph(PropertyGraphStore):
 
         Returns:
             Dict[str, Any]: The query results
+
         """
         return self.structured_query(query, params)
 
@@ -349,13 +368,15 @@ class NeptuneBasePropertyGraph(PropertyGraphStore):
         return self.structured_schema
 
     def get_schema_str(self, refresh: bool = False) -> str:
-        """Get the schema as a string.
+        """
+        Get the schema as a string.
 
         Args:
             refresh (bool, optional): True to force refresh of the schema. Defaults to False.
 
         Returns:
             str: A string description of the schema
+
         """
         if refresh or not self.schema:
             schema = refresh_schema(self.query, self._get_summary())

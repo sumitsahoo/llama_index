@@ -1,84 +1,167 @@
 import inspect
+from importlib import import_module
 from typing import (
-    get_args,
-    get_origin,
     Any,
-    List,
-    Optional,
-    Tuple,
-    Union,
     Callable,
     Dict,
+    List,
+    Optional,
+    Union,
+    get_args,
+    get_origin,
     get_type_hints,
 )
 
 # handle python version compatibility
 try:
-    from types import UnionType
-except ImportError:
-    UnionType = Union
+    from types import UnionType  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover
+    from typing import Union as UnionType  # type: ignore[assignment]
 
-from .context import Context
-from .events import Event
+from llama_index.core.bridge.pydantic import BaseModel, ConfigDict
+
 from .errors import WorkflowValidationError
+from .events import Event, EventType
+
+BUSY_WAIT_DELAY = 0.01
 
 
-def validate_step_signature(fn: Callable) -> Tuple[str, List[object], List[object]]:
-    """Given a function, ensure the signature is compatible with a workflow step.
-
-    This function returns a tuple with:
-        - the name of the parameter delivering the event
-        - the list of event types in input
-        - the list of event types in output
+class ServiceDefinition(BaseModel):
     """
+    A Pydantic model representing a service definition in a workflow step.
+
+    This class defines a service that can be injected into a workflow step.
+    It is made hashable through Pydantic's ConfigDict to enable its use in collections.
+
+    Attributes:
+        name (str): The name of the service parameter in the step function.
+        service (Any): The type or class of the service to be injected.
+        default_value (Optional[Any]): Default value for the service if not provided.
+
+    """
+
+    # Make the service definition hashable
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    service: Any
+    default_value: Optional[Any]
+
+
+class StepSignatureSpec(BaseModel):
+    """A Pydantic model representing the signature of a step function or method."""
+
+    accepted_events: Dict[str, List[EventType]]
+    return_types: List[Any]
+    context_parameter: Optional[str]
+    requested_services: Optional[List[ServiceDefinition]]
+
+
+def inspect_signature(fn: Callable) -> StepSignatureSpec:
+    """
+    Given a function, ensure the signature is compatible with a workflow step.
+
+    Args:
+        fn (Callable): The function to inspect.
+
+    Returns:
+        StepSignatureSpec: A specification object containing:
+            - accepted_events: Dictionary mapping parameter names to their event types
+            - return_types: List of return type annotations
+            - context_parameter: Name of the context parameter if present
+            - requested_services: List of required service definitions
+
+    Raises:
+        TypeError: If fn is not a callable object
+
+    """
+    if not callable(fn):
+        raise TypeError(f"Expected a callable object, got {type(fn).__name__}")
+
     sig = inspect.signature(fn)
+    type_hints = get_type_hints(fn)
 
-    # At least one parameter
-    if len(sig.parameters) == 0:
-        msg = "Step signature must have at least one parameter"
-        raise WorkflowValidationError(msg)
+    accepted_events: Dict[str, List[EventType]] = {}
+    context_parameter = None
+    requested_services = []
 
-    event_name = ""
-    event_types = []
-    num_of_possible_events = 0
+    # Inspect function parameters
     for name, t in sig.parameters.items():
+        # Ignore self and cls
         if name in ("self", "cls"):
             continue
 
-        # All parameters must be annotated
-        if t.annotation == inspect._empty:
-            msg = "Step signature parameters must be annotated"
-            raise WorkflowValidationError(msg)
+        annotation = type_hints.get(name, t.annotation)
 
-        if t.annotation == Context:
+        # Get name and type of the Context param
+        if hasattr(annotation, "__name__") and annotation.__name__ == "Context":
+            context_parameter = name
             continue
 
-        event_types = _get_param_types(t)
+        # Collect name and types of the event param
+        param_types = _get_param_types(t, type_hints)
+        if all(
+            param_t == Event
+            or (inspect.isclass(param_t) and issubclass(param_t, Event))
+            for param_t in param_types
+        ):
+            accepted_events[name] = param_types
+            continue
 
-        all_events = all(et == Event or issubclass(et, Event) for et in event_types)
+        # Everything else will be treated as a service request
+        default_value = t.default
+        if default_value is inspect.Parameter.empty:
+            default_value = None
 
-        if not all_events:
-            msg = "Events in step signature parameters must be of type Event"
-            raise WorkflowValidationError(msg)
+        requested_services.append(
+            ServiceDefinition(
+                name=name, service=param_types[0], default_value=default_value
+            )
+        )
 
-        # Number of events in the signature must be exactly one
-        num_of_possible_events += 1
-        event_name = name
+    return StepSignatureSpec(
+        accepted_events=accepted_events,
+        return_types=_get_return_types(fn),
+        context_parameter=context_parameter,
+        requested_services=requested_services,
+    )
 
-    if num_of_possible_events != 1:
-        msg = f"Step signature must contain exactly one parameter of type Event but found {num_of_possible_events}."
+
+def validate_step_signature(spec: StepSignatureSpec) -> None:
+    """
+    Validate that a step signature specification meets workflow requirements.
+
+    Args:
+        spec (StepSignatureSpec): The signature specification to validate.
+
+    Raises:
+        WorkflowValidationError: If the signature is invalid for a workflow step.
+
+    """
+    num_of_events = len(spec.accepted_events)
+    if num_of_events == 0:
+        msg = "Step signature must have at least one parameter annotated as type Event"
+        raise WorkflowValidationError(msg)
+    elif num_of_events > 1:
+        msg = f"Step signature must contain exactly one parameter of type Event but found {num_of_events}."
         raise WorkflowValidationError(msg)
 
-    return_types = _get_return_types(fn)
-    if not return_types:
+    if not spec.return_types:
         msg = f"Return types of workflows step functions must be annotated with their type."
         raise WorkflowValidationError(msg)
 
-    return (event_name, event_types, return_types)
-
 
 def get_steps_from_class(_class: object) -> Dict[str, Callable]:
-    """Given a class, return the list of its methods that were defined as steps."""
+    """
+    Given a class, return the list of its methods that were defined as steps.
+
+    Args:
+        _class (object): The class to inspect for step methods.
+
+    Returns:
+        Dict[str, Callable]: A dictionary mapping step names to their corresponding methods.
+
+    """
     step_methods = {}
     all_methods = inspect.getmembers(_class, predicate=inspect.isfunction)
 
@@ -90,7 +173,16 @@ def get_steps_from_class(_class: object) -> Dict[str, Callable]:
 
 
 def get_steps_from_instance(workflow: object) -> Dict[str, Callable]:
-    """Given a workflow instance, return the list of its methods that were defined as steps."""
+    """
+    Given a workflow instance, return the list of its methods that were defined as steps.
+
+    Args:
+        workflow (object): The workflow instance to inspect.
+
+    Returns:
+        Dict[str, Callable]: A dictionary mapping step names to their corresponding methods.
+
+    """
     step_methods = {}
     all_methods = inspect.getmembers(workflow, predicate=inspect.ismethod)
 
@@ -101,9 +193,22 @@ def get_steps_from_instance(workflow: object) -> Dict[str, Callable]:
     return step_methods
 
 
-def _get_param_types(param: inspect.Parameter) -> List[object]:
-    """Extract the types of a parameter. Handles Union and Optional types."""
-    typ = param.annotation
+def _get_param_types(param: inspect.Parameter, type_hints: dict) -> List[Any]:
+    """
+    Extract and process the types of a parameter.
+
+    This helper function handles Union and Optional types, returning a list of the actual types.
+    For Union[A, None] (Optional[A]), it returns [A].
+
+    Args:
+        param (inspect.Parameter): The parameter to analyze.
+        type_hints (dict): The resolved type hints for the function.
+
+    Returns:
+        List[Any]: A list of extracted types, excluding None from Unions/Optionals.
+
+    """
+    typ = type_hints.get(param.name, param.annotation)
     if typ is inspect.Parameter.empty:
         return [Any]
     if get_origin(typ) in (Union, Optional, UnionType):
@@ -111,8 +216,9 @@ def _get_param_types(param: inspect.Parameter) -> List[object]:
     return [typ]
 
 
-def _get_return_types(func: Callable) -> List[object]:
-    """Extract the return type hints from a function.
+def _get_return_types(func: Callable) -> List[Any]:
+    """
+    Extract the return type hints from a function.
 
     Handles Union, Optional, and List types.
     """
@@ -129,10 +235,22 @@ def _get_return_types(func: Callable) -> List[object]:
         return [return_hint]
 
 
-def is_free_function(qualname: str):
-    """Determines whether a certain qualified name points to a free function.
+def is_free_function(qualname: str) -> bool:
+    """
+    Determines whether a certain qualified name points to a free function.
 
-    The strategy should be able to spot nested functions, for details see PEP-3155.
+    A free function is either a module-level function or a nested function.
+    This implementation follows PEP-3155 for handling nested function detection.
+
+    Args:
+        qualname (str): The qualified name to analyze.
+
+    Returns:
+        bool: True if the name represents a free function, False otherwise.
+
+    Raises:
+        ValueError: If the qualified name is empty.
+
     """
     if not qualname:
         msg = "The qualified name cannot be empty"
@@ -147,3 +265,54 @@ def is_free_function(qualname: str):
         return False
     else:
         return toks[-2] == "<locals>"
+
+
+def get_qualified_name(value: Any) -> str:
+    """
+    Get the qualified name of a value.
+
+    Args:
+        value (Any): The value to get the qualified name for.
+
+    Returns:
+        str: The qualified name in the format 'module.class'.
+
+    Raises:
+        AttributeError: If value does not have __module__ or __class__ attributes
+
+    """
+    try:
+        return value.__module__ + "." + value.__class__.__name__
+    except AttributeError as e:
+        raise AttributeError(f"Object {value} does not have required attributes: {e}")
+
+
+def import_module_from_qualified_name(qualified_name: str) -> Any:
+    """
+    Import a module from a qualified name.
+
+    Args:
+        qualified_name (str): The fully qualified name of the module to import.
+
+    Returns:
+        Any: The imported module object.
+
+    Raises:
+        ValueError: If qualified_name is empty or malformed
+        ImportError: If module cannot be imported
+        AttributeError: If attribute cannot be found in module
+
+    """
+    if not qualified_name or "." not in qualified_name:
+        raise ValueError("Qualified name must be in format 'module.attribute'")
+
+    try:
+        module_path = qualified_name.rsplit(".", 1)
+        module = import_module(module_path[0])
+        return getattr(module, module_path[1])
+    except ImportError as e:
+        raise ImportError(f"Failed to import module {module_path[0]}: {e}")
+    except AttributeError as e:
+        raise AttributeError(
+            f"Attribute {module_path[1]} not found in module {module_path[0]}: {e}"
+        )

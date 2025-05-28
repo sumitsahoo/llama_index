@@ -19,7 +19,7 @@ from typing import (
 import networkx
 
 from llama_index.core.async_utils import asyncio_run, run_jobs
-from llama_index.core.bridge.pydantic import Field
+from llama_index.core.bridge.pydantic import Field, ConfigDict
 from llama_index.core.callbacks import CallbackManager
 from llama_index.core.callbacks.schema import CBEventType, EventPayload
 from llama_index.core.base.query_pipeline.query import (
@@ -185,7 +185,8 @@ def update_stateful_components(
 def get_and_update_stateful_components(
     query_component: QueryComponent, state: Dict[str, Any]
 ) -> List[BaseStatefulComponent]:
-    """Get and update stateful components.
+    """
+    Get and update stateful components.
 
     Assign all stateful components in the query component with the state.
 
@@ -199,12 +200,14 @@ CHAIN_COMPONENT_TYPE = Union[QUERY_COMPONENT_TYPE, str]
 
 
 class QueryPipeline(QueryComponent):
-    """A query pipeline that can allow arbitrary chaining of different modules.
+    """
+    A query pipeline that can allow arbitrary chaining of different modules.
 
     A pipeline itself is a query component, and can be used as a module in another pipeline.
 
     """
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     callback_manager: CallbackManager = Field(
         default_factory=lambda: CallbackManager([]), exclude=True
     )
@@ -229,9 +232,6 @@ class QueryPipeline(QueryComponent):
         default_factory=dict, description="State of the pipeline."
     )
 
-    class Config:
-        arbitrary_types_allowed = True
-
     def __init__(
         self,
         callback_manager: Optional[CallbackManager] = None,
@@ -241,9 +241,10 @@ class QueryPipeline(QueryComponent):
         state: Optional[Dict[str, Any]] = None,
         **kwargs: Any,
     ):
+        state = state or {}
         super().__init__(
             callback_manager=callback_manager or CallbackManager([]),
-            state=state or {},
+            state=state,
             **kwargs,
         )
 
@@ -281,10 +282,11 @@ class QueryPipeline(QueryComponent):
             self.add_modules(modules)
             if links is not None:
                 for link in links:
-                    self.add_link(**link.dict())
+                    self.add_link(**link.model_dump())
 
     def add_chain(self, chain: Sequence[CHAIN_COMPONENT_TYPE]) -> None:
-        """Add a chain of modules to the pipeline.
+        """
+        Add a chain of modules to the pipeline.
 
         This is a special form of pipeline that is purely sequential/linear.
         This allows a more concise way of specifying a pipeline.
@@ -318,7 +320,7 @@ class QueryPipeline(QueryComponent):
         """Add links to the pipeline."""
         for link in links:
             if isinstance(link, Link):
-                self.add_link(**link.dict())
+                self.add_link(**link.model_dump())
             else:
                 raise ValueError("Link must be of type `Link` or `ConditionalLinks`.")
 
@@ -452,7 +454,7 @@ class QueryPipeline(QueryComponent):
                     **kwargs,
                 )
 
-    def merge_dicts(self, d1, d2):
+    def merge_dicts(self, d1: Dict[str, Any], d2: Dict[str, Any]) -> Dict[str, Any]:
         """Merge two dictionaries recursively, combining values of the same key into a list."""
         merged = {}
         for key in set(d1).union(d2):
@@ -460,10 +462,11 @@ class QueryPipeline(QueryComponent):
                 if isinstance(d1[key], dict) and isinstance(d2[key], dict):
                     merged[key] = self.merge_dicts(d1[key], d2[key])
                 else:
-                    merged[key] = (
-                        [d1[key]] if not isinstance(d1[key], list) else d1[key]
-                    )
-                    merged[key].append(d2[key])
+                    new_val = [d1[key]] if not isinstance(d1[key], list) else d1[key]
+                    assert isinstance(new_val, list)
+
+                    new_val.append(d2[key])
+                    merged[key] = new_val  # type: ignore[assignment]
             else:
                 merged[key] = d1.get(key, d2.get(key))
         return merged
@@ -483,7 +486,7 @@ class QueryPipeline(QueryComponent):
                 payload={EventPayload.QUERY_STR: json.dumps(module_input_dict)},
             ) as query_event:
                 if batch:
-                    outputs = {}
+                    outputs: Dict[str, Any] = {}
 
                     batch_lengths = {
                         len(values)
@@ -609,7 +612,7 @@ class QueryPipeline(QueryComponent):
                 payload={EventPayload.QUERY_STR: json.dumps(module_input_dict)},
             ) as query_event:
                 if batch:
-                    outputs = {}
+                    outputs: Dict[str, Any] = {}
 
                     batch_lengths = {
                         len(values)
@@ -658,14 +661,16 @@ class QueryPipeline(QueryComponent):
                 CBEventType.QUERY,
                 payload={EventPayload.QUERY_STR: json.dumps(module_input_dict)},
             ) as query_event:
-                return await self._arun_multi(
+                outputs, _ = await self._arun_multi(
                     module_input_dict, show_intermediates=True
                 )
+                return outputs
 
     def _get_root_key_and_kwargs(
         self, *args: Any, **kwargs: Any
     ) -> Tuple[str, Dict[str, Any]]:
-        """Get root key and kwargs.
+        """
+        Get root key and kwargs.
 
         This is for `_run`.
 
@@ -708,7 +713,8 @@ class QueryPipeline(QueryComponent):
         result_outputs: Dict[str, Any],
         return_values_direct: bool,
     ) -> Any:
-        """Get result output from a single module.
+        """
+        Get result output from a single module.
 
         If output dict is a single key, return the value directly
         if return_values_direct is True.
@@ -739,7 +745,8 @@ class QueryPipeline(QueryComponent):
         batch: bool = False,
         **kwargs: Any,
     ) -> Tuple[Any, Dict[str, ComponentIntermediates]]:
-        """Run the pipeline.
+        """
+        Run the pipeline.
 
         Assume that there is a single root module and a single output module.
 
@@ -756,7 +763,7 @@ class QueryPipeline(QueryComponent):
                 raise ValueError("Length of batch inputs must be the same.")
 
             # List of individual inputs from batch input
-            kwargs = [
+            kwargs_list = [
                 dict(zip(kwargs.keys(), values)) for values in zip(*kwargs.values())
             ]
 
@@ -764,7 +771,7 @@ class QueryPipeline(QueryComponent):
                 self._arun_multi(
                     {root_key: kwarg}, show_intermediates=show_intermediates
                 )
-                for kwarg in kwargs
+                for kwarg in kwargs_list
             ]
 
             results = asyncio_run(run_jobs(jobs, workers=len(jobs)))
@@ -775,15 +782,17 @@ class QueryPipeline(QueryComponent):
                 )
                 intermediates.append(result[1])
 
-            return result_outputs, intermediates
+            return result_outputs, intermediates  # type: ignore[return-value]
         else:
-            result_outputs, intermediates = self._run_multi(
+            result_output_dicts, intermediate_dicts = self._run_multi(
                 {root_key: kwargs}, show_intermediates=show_intermediates
             )
 
             return (
-                self._get_single_result_output(result_outputs, return_values_direct),
-                intermediates,
+                self._get_single_result_output(
+                    result_output_dicts, return_values_direct
+                ),
+                intermediate_dicts,
             )
 
     @dispatcher.span
@@ -795,7 +804,8 @@ class QueryPipeline(QueryComponent):
         batch: bool = False,
         **kwargs: Any,
     ) -> Tuple[Any, Dict[str, ComponentIntermediates]]:
-        """Run the pipeline.
+        """
+        Run the pipeline.
 
         Assume that there is a single root module and a single output module.
 
@@ -812,7 +822,7 @@ class QueryPipeline(QueryComponent):
                 raise ValueError("Length of batch inputs must be the same.")
 
             # List of individual inputs from batch input
-            kwargs = [
+            kwargs_list = [
                 dict(zip(kwargs.keys(), values)) for values in zip(*kwargs.values())
             ]
 
@@ -820,7 +830,7 @@ class QueryPipeline(QueryComponent):
                 self._arun_multi(
                     {root_key: kwarg}, show_intermediates=show_intermediates
                 )
-                for kwarg in kwargs
+                for kwarg in kwargs_list
             ]
 
             results = await run_jobs(jobs, workers=len(jobs))
@@ -831,15 +841,17 @@ class QueryPipeline(QueryComponent):
                 )
                 intermediates.append(result[1])
 
-            return result_outputs, intermediates
+            return result_outputs, intermediates  # type: ignore[return-value]
         else:
-            result_outputs, intermediates = await self._arun_multi(
+            result_output_dicts, intermediate_dicts = await self._arun_multi(
                 {root_key: kwargs}, show_intermediates=show_intermediates
             )
 
             return (
-                self._get_single_result_output(result_outputs, return_values_direct),
-                intermediates,
+                self._get_single_result_output(
+                    result_output_dicts, return_values_direct
+                ),
+                intermediate_dicts,
             )
 
     def _validate_inputs(self, module_input_dict: Dict[str, Any]) -> None:
@@ -857,7 +869,7 @@ class QueryPipeline(QueryComponent):
         output_dict: Dict[str, Any],
         module_key: str,
         run_state: RunState,
-    ):
+    ) -> None:
         """Process component output."""
         if module_key in self._get_leaf_keys():
             run_state.result_outputs[module_key] = output_dict
@@ -913,7 +925,7 @@ class QueryPipeline(QueryComponent):
 
     @dispatcher.span
     def _run_multi(
-        self, module_input_dict: Dict[str, Any], show_intermediates=False
+        self, module_input_dict: Dict[str, Any], show_intermediates: bool = False
     ) -> Tuple[Dict[str, Any], Dict[str, ComponentIntermediates]]:
         """Run the pipeline for multiple roots."""
         self._validate_inputs(module_input_dict)
@@ -959,7 +971,8 @@ class QueryPipeline(QueryComponent):
     async def _arun_multi(
         self, module_input_dict: Dict[str, Any], show_intermediates: bool = False
     ) -> Tuple[Dict[str, Any], Dict[str, ComponentIntermediates]]:
-        """Run the pipeline for multiple roots.
+        """
+        Run the pipeline for multiple roots.
 
         kwargs is in the form of module_dict -> input_dict
         input_dict is in the form of input_key -> input

@@ -10,10 +10,12 @@ from llama_index.core.tools import FunctionTool
 class MockLLM(CustomLLM):
     @property
     def metadata(self) -> LLMMetadata:
-        """LLM metadata.
+        """
+        LLM metadata.
 
         Returns:
             LLMMetadata: LLM metadata containing various information about the LLM.
+
         """
         return LLMMetadata()
 
@@ -36,7 +38,7 @@ class MockLLM(CustomLLM):
                         dependencies=["one", "two"],
                     ),
                 ]
-            ).json()
+            ).model_dump_json()
             return CompletionResponse(text=text)
 
         # dummy response for react

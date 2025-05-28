@@ -3,13 +3,14 @@ import threading
 from abc import abstractmethod
 from typing import Any, Dict, List, Generic, Optional, TypeVar
 
-from llama_index.core.bridge.pydantic import BaseModel, Field, PrivateAttr
+from llama_index.core.bridge.pydantic import BaseModel, Field, PrivateAttr, ConfigDict
 from llama_index.core.instrumentation.span.base import BaseSpan
 
 T = TypeVar("T", bound=BaseSpan)
 
 
 class BaseSpanHandler(BaseModel, Generic[T]):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     open_spans: Dict[str, T] = Field(
         default_factory=dict, description="Dictionary of open spans."
     )
@@ -24,9 +25,6 @@ class BaseSpanHandler(BaseModel, Generic[T]):
     )
     _lock: Optional[threading.Lock] = PrivateAttr()
 
-    class Config:
-        arbitrary_types_allowed = True
-
     def __init__(
         self,
         open_spans: Dict[str, T] = {},
@@ -34,13 +32,13 @@ class BaseSpanHandler(BaseModel, Generic[T]):
         dropped_spans: List[T] = [],
         current_span_ids: Dict[Any, str] = {},
     ):
-        self._lock = None
         super().__init__(
             open_spans=open_spans,
             completed_spans=completed_spans,
             dropped_spans=dropped_spans,
             current_span_ids=current_span_ids,
         )
+        self._lock = None
 
     def class_name(cls) -> str:
         """Class name."""
@@ -118,7 +116,8 @@ class BaseSpanHandler(BaseModel, Generic[T]):
         tags: Optional[Dict[str, Any]] = None,
         **kwargs: Any,
     ) -> Optional[T]:
-        """Create a span.
+        """
+        Create a span.
 
         Subclasses of BaseSpanHandler should create the respective span type T
         and return it. Only NullSpanHandler should return a None here.
@@ -134,7 +133,8 @@ class BaseSpanHandler(BaseModel, Generic[T]):
         result: Optional[Any] = None,
         **kwargs: Any,
     ) -> Optional[T]:
-        """Logic for preparing to exit a span.
+        """
+        Logic for preparing to exit a span.
 
         Subclasses of BaseSpanHandler should return back the specific span T
         that is to be exited. If None is returned, then the span won't actually
@@ -151,7 +151,8 @@ class BaseSpanHandler(BaseModel, Generic[T]):
         err: Optional[BaseException] = None,
         **kwargs: Any,
     ) -> Optional[T]:
-        """Logic for preparing to drop a span.
+        """
+        Logic for preparing to drop a span.
 
         Subclasses of BaseSpanHandler should return back the specific span T
         that is to be dropped. If None is returned, then the span won't actually

@@ -18,7 +18,7 @@ class OllamaEmbedding(BaseEmbedding):
         default=DEFAULT_EMBED_BATCH_SIZE,
         description="The batch size for embedding calls.",
         gt=0,
-        lte=2048,
+        le=2048,
     )
     ollama_additional_kwargs: Dict[str, Any] = Field(
         default_factory=dict, description="Additional kwargs for the Ollama API."
@@ -34,6 +34,7 @@ class OllamaEmbedding(BaseEmbedding):
         embed_batch_size: int = DEFAULT_EMBED_BATCH_SIZE,
         ollama_additional_kwargs: Optional[Dict[str, Any]] = None,
         callback_manager: Optional[CallbackManager] = None,
+        client_kwargs: Optional[Dict[str, Any]] = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -45,8 +46,9 @@ class OllamaEmbedding(BaseEmbedding):
             **kwargs,
         )
 
-        self._client = Client(host=self.base_url)
-        self._async_client = AsyncClient(host=self.base_url)
+        client_kwargs = client_kwargs or {}
+        self._client = Client(host=self.base_url, **client_kwargs)
+        self._async_client = AsyncClient(host=self.base_url, **client_kwargs)
 
     @classmethod
     def class_name(cls) -> str:

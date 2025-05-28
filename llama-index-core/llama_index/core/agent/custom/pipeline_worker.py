@@ -5,6 +5,7 @@ from typing import (
     Any,
     List,
     Optional,
+    Sequence,
     cast,
 )
 
@@ -15,7 +16,7 @@ from llama_index.core.agent.types import (
     TaskStepOutput,
 )
 from llama_index.core.base.query_pipeline.query import QueryComponent
-from llama_index.core.bridge.pydantic import BaseModel, Field
+from llama_index.core.bridge.pydantic import BaseModel, Field, ConfigDict
 from llama_index.core.callbacks import (
     CallbackManager,
     trace_method,
@@ -25,7 +26,6 @@ from llama_index.core.chat_engine.types import (
 )
 from llama_index.core.memory.chat_memory_buffer import ChatMemoryBuffer
 from llama_index.core.query_pipeline.components.agent import (
-    AgentFnComponent,
     AgentInputComponent,
     BaseAgentComponent,
 )
@@ -36,7 +36,9 @@ from deprecated import deprecated
 DEFAULT_MODEL_NAME = "gpt-3.5-turbo-0613"
 
 
-def _get_agent_components(query_component: QueryComponent) -> List[BaseAgentComponent]:
+def _get_agent_components(
+    query_component: QueryComponent,
+) -> Sequence[BaseAgentComponent]:
     """Get agent components."""
     agent_components: List[BaseAgentComponent] = []
     for c in query_component.sub_query_components:
@@ -51,7 +53,8 @@ def _get_agent_components(query_component: QueryComponent) -> List[BaseAgentComp
 
 @deprecated("Use `FnAgentWorker` instead to build a stateful agent.")
 class QueryPipelineAgentWorker(BaseModel, BaseAgentWorker):
-    """Query Pipeline agent worker.
+    """
+    Query Pipeline agent worker.
 
     NOTE: This is now deprecated. Use `FnAgentWorker` instead to build a stateful agent.
 
@@ -72,13 +75,11 @@ class QueryPipelineAgentWorker(BaseModel, BaseAgentWorker):
 
     """
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     pipeline: QueryPipeline = Field(..., description="Query pipeline")
     callback_manager: CallbackManager = Field(..., exclude=True)
     task_key: str = Field("task", description="Key to store task in state")
     step_state_key: str = Field("step_state", description="Key to store step in state")
-
-    class Config:
-        arbitrary_types_allowed = True
 
     def __init__(
         self,
@@ -103,7 +104,8 @@ class QueryPipelineAgentWorker(BaseModel, BaseAgentWorker):
 
     @property
     def agent_input_component(self) -> AgentInputComponent:
-        """Get agent input component.
+        """
+        Get agent input component.
 
         NOTE: This is deprecated and will be removed in the future.
 
@@ -118,12 +120,13 @@ class QueryPipelineAgentWorker(BaseModel, BaseAgentWorker):
         return cast(AgentInputComponent, self.pipeline.module_dict[root_key])
 
     @property
-    def agent_components(self) -> List[AgentFnComponent]:
+    def agent_components(self) -> Sequence[BaseAgentComponent]:
         """Get agent output component."""
         return _get_agent_components(self.pipeline)
 
     def preprocess(self, task: Task, step: TaskStep) -> None:
-        """Preprocessing flow.
+        """
+        Preprocessing flow.
 
         This runs preprocessing to propagate the task and step as variables
         to relevant components in the query pipeline.

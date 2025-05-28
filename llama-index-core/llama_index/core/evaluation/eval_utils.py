@@ -1,4 +1,5 @@
-"""Get evaluation utils.
+"""
+Get evaluation utils.
 
 NOTE: These are beta functions, might change.
 
@@ -10,7 +11,6 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
 
 from llama_index.core.async_utils import asyncio_module, asyncio_run
 from llama_index.core.base.base_query_engine import BaseQueryEngine
@@ -37,7 +37,8 @@ def get_responses(
     *args: Any,
     **kwargs: Any,
 ) -> List[str]:
-    """Get responses.
+    """
+    Get responses.
 
     Sync version of aget_responses.
 
@@ -46,12 +47,15 @@ def get_responses(
 
 
 def get_results_df(
-    eval_results_list: List[EvaluationResult], names: List[str], metric_keys: List[str]
-) -> pd.DataFrame:
-    """Get results df.
+    eval_results_list: List[Dict[str, List[EvaluationResult]]],
+    names: List[str],
+    metric_keys: List[str],
+) -> Any:
+    """
+    Get results df.
 
     Args:
-        eval_results_list (List[EvaluationResult]):
+        eval_results_list (List[Dict[str, List[EvaluationResult]]]):
             List of evaluation results.
         names (List[str]):
             Names of the evaluation results.
@@ -59,11 +63,20 @@ def get_results_df(
             List of metric keys to get.
 
     """
+    try:
+        import pandas as pd
+    except ImportError:
+        raise ImportError(
+            "Pandas is required to get results dataframes. Please install it with `pip install pandas`."
+        )
+
     metric_dict = defaultdict(list)
     metric_dict["names"] = names
     for metric_key in metric_keys:
         for eval_results in eval_results_list:
-            mean_score = np.array([r.score for r in eval_results[metric_key]]).mean()
+            mean_score = np.array(
+                [r.score or 0.0 for r in eval_results[metric_key]]
+            ).mean()
             metric_dict[metric_key].append(mean_score)
     return pd.DataFrame(metric_dict)
 
@@ -83,7 +96,7 @@ def _download_llama_dataset_from_hub(llama_dataset_id: str) -> "LabelledRagDatas
                     f"{tmp}",
                 ]
             )
-            return LabelledRagDataset.from_json(f"{tmp}/rag_dataset.json")
+            return LabelledRagDataset.from_json(f"{tmp}/rag_dataset.json")  # type: ignore
         except FileNotFoundError as err:
             raise ValueError(
                 "No dataset associated with the supplied `llama_dataset_id`"
@@ -150,7 +163,7 @@ def upload_eval_dataset(
         # download `LabelledRagDataset` from llama-hub
         assert llama_dataset_id is not None
         rag_dataset = _download_llama_dataset_from_hub(llama_dataset_id)
-        questions = [example.query for example in rag_dataset[:]]
+        questions = [example.query for example in rag_dataset[:]]  # type: ignore
 
     eval_questions = client.evals.create_questions(
         dataset_id=eval_dataset.id,
@@ -165,7 +178,8 @@ def upload_eval_dataset(
 def upload_eval_results(
     project_name: str, app_name: str, results: Dict[str, List[EvaluationResult]]
 ) -> None:
-    """Upload the evaluation results to LlamaCloud.
+    """
+    Upload the evaluation results to LlamaCloud.
 
     Args:
         project_name (str): The name of the project.
@@ -184,6 +198,7 @@ def upload_eval_results(
             results={"evaluator_name": [result]}
         )
         ```
+
     """
     from llama_cloud import ProjectCreate
 
@@ -213,6 +228,7 @@ def default_parser(eval_response: str) -> Tuple[Optional[float], Optional[str]]:
 
     Returns:
         Tuple[float, str]: A tuple containing the score as a float and the reasoning as a string.
+
     """
     if not eval_response.strip():
         # Return None or default values if the response is empty

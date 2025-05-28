@@ -18,7 +18,8 @@ def get_file_content_bytes(url: str, path: str) -> Tuple[bytes, int]:
 
 
 def get_exports(raw_content: str) -> List:
-    """Read content of a Python file and returns a list of exported class names.
+    """
+    Read content of a Python file and returns a list of exported class names.
 
     For example:
     ```python
@@ -46,7 +47,8 @@ def get_exports(raw_content: str) -> List:
 
 
 def rewrite_exports(exports: List[str], dirpath: str) -> None:
-    """Write the `__all__` variable to the `__init__.py` file in the modules dir.
+    """
+    Write the `__all__` variable to the `__init__.py` file in the modules dir.
 
     Removes the line that contains `__all__` and appends a new line with the updated
     `__all__` variable.
@@ -98,8 +100,8 @@ def get_source_files_list(source_tree_url: str, path: str) -> List[str]:
 
 
 def recursive_tree_traverse(
-    tree_urls: List[Tuple[str, str]], acc: List[str], source_tree_url: str
-):
+    tree_urls: List[str], acc: List[str], source_tree_url: str
+) -> List[str]:
     """Recursively traversge Github trees to get all file paths in a folder."""
     if not tree_urls:
         return acc
@@ -148,5 +150,5 @@ class ChangeDirectory:
         self.saved_path = os.getcwd()
         os.chdir(self.new_path)
 
-    def __exit__(self, etype, value, traceback) -> None:
+    def __exit__(self, etype: object, value: object, traceback: object) -> None:
         os.chdir(self.saved_path)

@@ -7,7 +7,12 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from llama_index.core.base.base_query_engine import BaseQueryEngine
 from llama_index.core.base.llms.types import ChatMessage
 from llama_index.core.base.response.schema import RESPONSE_TYPE, Response
-from llama_index.core.bridge.pydantic import BaseModel, Field
+from llama_index.core.bridge.pydantic import (
+    BaseModel,
+    Field,
+    SerializeAsAny,
+    ConfigDict,
+)
 from llama_index.core.callbacks import CallbackManager, trace_method
 from llama_index.core.chat_engine.types import (
     BaseChatEngine,
@@ -71,7 +76,8 @@ class BaseAgent(BaseChatEngine, BaseQueryEngine):
 
 
 class TaskStep(BaseModel):
-    """Agent task step.
+    """
+    Agent task step.
 
     Represents a single input step within the execution run ("Task") of an agent
     given a user input.
@@ -80,11 +86,11 @@ class TaskStep(BaseModel):
 
     """
 
-    task_id: str = Field(..., diescription="Task ID")
+    task_id: str = Field(..., description="Task ID")
     step_id: str = Field(..., description="Step ID")
     input: Optional[str] = Field(default=None, description="User input")
     # memory: BaseMemory = Field(
-    #     ..., type=BaseMemory, description="Conversational Memory"
+    #     ..., description="Conversational Memory"
     # )
     step_state: Dict[str, Any] = Field(
         default_factory=dict, description="Additional state for a given step."
@@ -109,7 +115,8 @@ class TaskStep(BaseModel):
         input: Optional[str] = None,
         step_state: Optional[Dict[str, Any]] = None,
     ) -> "TaskStep":
-        """Convenience function to get next step.
+        """
+        Convenience function to get next step.
 
         Preserve task_id, memory, step_state.
 
@@ -126,7 +133,8 @@ class TaskStep(BaseModel):
         self,
         next_step: "TaskStep",
     ) -> None:
-        """Link to next step.
+        """
+        Link to next step.
 
         Add link from this step to next, and from next step to current.
 
@@ -149,31 +157,29 @@ class TaskStepOutput(BaseModel):
 
 
 class Task(BaseModel):
-    """Agent Task.
+    """
+    Agent Task.
 
     Represents a "run" of an agent given a user input.
 
     """
 
-    class Config:
-        arbitrary_types_allowed = True
-
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     task_id: str = Field(
-        default_factory=lambda: str(uuid.uuid4()), type=str, description="Task ID"
+        default_factory=lambda: str(uuid.uuid4()), description="Task ID"
     )
-    input: str = Field(..., type=str, description="User input")
+    input: str = Field(..., description="User input")
 
     # NOTE: this is state that may be modified throughout the course of execution of the task
-    memory: BaseMemory = Field(
+    memory: SerializeAsAny[BaseMemory] = Field(
         ...,
-        type=BaseMemory,
         description=(
             "Conversational Memory. Maintains state before execution of this task."
         ),
     )
 
     callback_manager: CallbackManager = Field(
-        default_factory=CallbackManager,
+        default_factory=lambda: CallbackManager([]),
         exclude=True,
         description="Callback manager for the task.",
     )
@@ -189,9 +195,6 @@ class Task(BaseModel):
 
 class BaseAgentWorker(PromptMixin, DispatcherSpanMixin):
     """Base agent worker."""
-
-    class Config:
-        arbitrary_types_allowed = True
 
     def _get_prompts(self) -> PromptDictType:
         """Get prompts."""
@@ -237,6 +240,10 @@ class BaseAgentWorker(PromptMixin, DispatcherSpanMixin):
     @abstractmethod
     def finalize_task(self, task: Task, **kwargs: Any) -> None:
         """Finalize task, after all the steps are completed."""
+
+    async def afinalize_task(self, task: Task, **kwargs: Any) -> None:
+        """Finalize task, after all the steps are completed."""
+        self.finalize_task(task, **kwargs)
 
     def set_callback_manager(self, callback_manager: CallbackManager) -> None:
         """Set callback manager."""

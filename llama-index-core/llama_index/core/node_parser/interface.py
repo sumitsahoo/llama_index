@@ -1,9 +1,16 @@
 """Node parser interface."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict, List, Sequence
+from typing import Any, Callable, Dict, List, Sequence, Optional
+from typing_extensions import Annotated
 
-from llama_index.core.bridge.pydantic import Field, validator
+from llama_index.core.bridge.pydantic import (
+    Field,
+    WithJsonSchema,
+    BeforeValidator,
+    ConfigDict,
+    PlainSerializer,
+)
 from llama_index.core.callbacks import CallbackManager, CBEventType, EventPayload
 from llama_index.core.node_parser.node_utils import (
     build_nodes_from_splits,
@@ -14,14 +21,36 @@ from llama_index.core.schema import (
     Document,
     MetadataMode,
     NodeRelationship,
+    TextNode,
     TransformComponent,
 )
 from llama_index.core.utils import get_tqdm_iterable
 
 
+def _validate_id_func(v: Any) -> Any:
+    if v is None:
+        return default_id_func
+    return v
+
+
+def _serialize_id_func(f: Callable) -> Any:
+    return {"id_func_name": f"{f.__name__}", "title": "id_func"}
+
+
+IdFuncCallable = Annotated[
+    Callable,
+    Field(validate_default=True),
+    BeforeValidator(_validate_id_func),
+    WithJsonSchema({"type": "string"}, mode="serialization"),
+    WithJsonSchema({"type": "string"}, mode="validation"),
+    PlainSerializer(_serialize_id_func),
+]
+
+
 class NodeParser(TransformComponent, ABC):
     """Base interface for node parser."""
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     include_metadata: bool = Field(
         default=True, description="Whether or not to consider metadata when splitting."
     )
@@ -29,22 +58,12 @@ class NodeParser(TransformComponent, ABC):
         default=True, description="Include prev/next node relationships."
     )
     callback_manager: CallbackManager = Field(
-        default_factory=CallbackManager, exclude=True
+        default_factory=lambda: CallbackManager([]), exclude=True
     )
-    id_func: Callable = Field(
+    id_func: Optional[IdFuncCallable] = Field(
         default=None,
         description="Function to generate node IDs.",
-        exclude=True,
     )
-
-    class Config:
-        arbitrary_types_allowed = True
-
-    @validator("id_func", pre=True)
-    def _validate_id_func(cls, v: Any) -> Any:
-        if v is None:
-            return default_id_func
-        return v
 
     @abstractmethod
     def _parse_nodes(
@@ -52,8 +71,7 @@ class NodeParser(TransformComponent, ABC):
         nodes: Sequence[BaseNode],
         show_progress: bool = False,
         **kwargs: Any,
-    ) -> List[BaseNode]:
-        ...
+    ) -> List[BaseNode]: ...
 
     async def _aparse_nodes(
         self,
@@ -67,8 +85,8 @@ class NodeParser(TransformComponent, ABC):
         self, nodes: List[BaseNode], parent_doc_map: Dict[str, Document]
     ) -> List[BaseNode]:
         for i, node in enumerate(nodes):
-            parent_doc = parent_doc_map.get(node.ref_doc_id, None)
-            parent_node = node.relationships.get(NodeRelationship.SOURCE, None)
+            parent_doc = parent_doc_map.get(node.ref_doc_id or "", None)
+            parent_node = node.source_node
 
             if parent_doc is not None:
                 if parent_doc.source_node is not None:
@@ -82,7 +100,7 @@ class NodeParser(TransformComponent, ABC):
                 )
 
                 # update start/end char idx
-                if start_char_idx >= 0:
+                if start_char_idx >= 0 and isinstance(node, TextNode):
                     node.start_char_idx = start_char_idx
                     node.end_char_idx = start_char_idx + len(
                         node.get_content(metadata_mode=MetadataMode.NONE)
@@ -108,7 +126,7 @@ class NodeParser(TransformComponent, ABC):
                     i > 0
                     and node.source_node
                     and nodes[i - 1].source_node
-                    and nodes[i - 1].source_node.node_id == node.source_node.node_id
+                    and nodes[i - 1].source_node.node_id == node.source_node.node_id  # type: ignore
                 ):
                     node.relationships[NodeRelationship.PREVIOUS] = nodes[
                         i - 1
@@ -117,7 +135,7 @@ class NodeParser(TransformComponent, ABC):
                     i < len(nodes) - 1
                     and node.source_node
                     and nodes[i + 1].source_node
-                    and nodes[i + 1].source_node.node_id == node.source_node.node_id
+                    and nodes[i + 1].source_node.node_id == node.source_node.node_id  # type: ignore
                 ):
                     node.relationships[NodeRelationship.NEXT] = nodes[
                         i + 1
@@ -131,7 +149,8 @@ class NodeParser(TransformComponent, ABC):
         show_progress: bool = False,
         **kwargs: Any,
     ) -> List[BaseNode]:
-        """Parse documents into nodes.
+        """
+        Parse documents into nodes.
 
         Args:
             documents (Sequence[Document]): documents to parse
@@ -170,17 +189,16 @@ class NodeParser(TransformComponent, ABC):
 
         return nodes
 
-    def __call__(self, nodes: List[BaseNode], **kwargs: Any) -> List[BaseNode]:
-        return self.get_nodes_from_documents(nodes, **kwargs)
+    def __call__(self, nodes: Sequence[BaseNode], **kwargs: Any) -> List[BaseNode]:
+        return self.get_nodes_from_documents(nodes, **kwargs)  # type: ignore
 
-    async def acall(self, nodes: List[BaseNode], **kwargs: Any) -> List[BaseNode]:
-        return await self.aget_nodes_from_documents(nodes, **kwargs)
+    async def acall(self, nodes: Sequence[BaseNode], **kwargs: Any) -> List[BaseNode]:
+        return await self.aget_nodes_from_documents(nodes, **kwargs)  # type: ignore
 
 
 class TextSplitter(NodeParser):
     @abstractmethod
-    def split_text(self, text: str) -> List[str]:
-        ...
+    def split_text(self, text: str) -> List[str]: ...
 
     def split_texts(self, texts: List[str]) -> List[str]:
         nested_texts = [self.split_text(text) for text in texts]
@@ -203,8 +221,7 @@ class TextSplitter(NodeParser):
 
 class MetadataAwareTextSplitter(TextSplitter):
     @abstractmethod
-    def split_text_metadata_aware(self, text: str, metadata_str: str) -> List[str]:
-        ...
+    def split_text_metadata_aware(self, text: str, metadata_str: str) -> List[str]: ...
 
     def split_texts_metadata_aware(
         self, texts: List[str], metadata_strs: List[str]

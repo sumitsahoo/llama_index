@@ -13,13 +13,13 @@ from llama_index.core.utils import get_tqdm_iterable
 
 def _add_parent_child_relationship(parent_node: BaseNode, child_node: BaseNode) -> None:
     """Add parent/child relationship between nodes."""
-    child_list = parent_node.relationships.get(NodeRelationship.CHILD, [])
+    child_list = parent_node.child_nodes or []
     child_list.append(child_node.as_related_node_info())
     parent_node.relationships[NodeRelationship.CHILD] = child_list
 
-    child_node.relationships[
-        NodeRelationship.PARENT
-    ] = parent_node.as_related_node_info()
+    child_node.relationships[NodeRelationship.PARENT] = (
+        parent_node.as_related_node_info()
+    )
 
 
 def get_leaf_nodes(nodes: List[BaseNode]) -> List[BaseNode]:
@@ -47,9 +47,7 @@ def get_child_nodes(nodes: List[BaseNode], all_nodes: List[BaseNode]) -> List[Ba
         if NodeRelationship.CHILD not in node.relationships:
             continue
 
-        children_ids.extend(
-            [r.node_id for r in node.relationships[NodeRelationship.CHILD]]
-        )
+        children_ids.extend([r.node_id for r in (node.child_nodes or [])])
 
     child_nodes = []
     for candidate_node in all_nodes:
@@ -76,7 +74,8 @@ def get_deeper_nodes(nodes: List[BaseNode], depth: int = 1) -> List[BaseNode]:
 
 
 class HierarchicalNodeParser(NodeParser):
-    """Hierarchical node parser.
+    """
+    Hierarchical node parser.
 
     Splits a document into a recursive hierarchy Nodes using a NodeParser.
 

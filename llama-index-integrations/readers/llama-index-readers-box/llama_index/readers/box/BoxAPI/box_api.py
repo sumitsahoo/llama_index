@@ -1,26 +1,21 @@
+import logging
 import os
 import shutil
-from typing import List, Optional, Dict
-import logging
+from typing import Dict, List, Optional
+
 import requests
 from box_sdk_gen import (
+    AiItemBase,
     BoxAPIError,
     BoxClient,
-    File,
-    ByteStream,
     BoxSDKError,
-)
-from box_sdk_gen.managers.search import (
-    SearchForContentScope,
+    ByteStream,
+    CreateAiAskMode,
+    File,
     SearchForContentContentTypes,
+    SearchForContentScope,
     SearchForContentType,
     SearchResults,
-)
-from box_sdk_gen.managers.ai import CreateAiAskMode, CreateAiAskItems
-
-from llama_index.readers.box.BoxAPI.box_ai_extract_beta import (
-    AiExtractManager,
-    CreateAiExtractItems,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,6 +31,7 @@ def add_extra_header_to_box_client(box_client: BoxClient) -> BoxClient:
 
     Returns:
         BoxClient: A Box client object with the extra headers added.
+
     """
     header = {"x-box-ai-library": "llama-index"}
     return box_client.with_extra_headers(extra_headers=header)
@@ -50,6 +46,7 @@ def box_check_connection(box_client: BoxClient) -> None:
 
     Returns:
         bool: True if the Box client is connected to the Box API, False otherwise.
+
     """
     try:
         box_client.users.get_user_me()
@@ -74,6 +71,7 @@ def get_box_files_details(box_client: BoxClient, file_ids: List[str]) -> List[Fi
 
     Raises:
         BoxAPIError: If an error occurs while retrieving file details from the Box API.
+
     """
     box_files_details: List[File] = []
 
@@ -110,6 +108,7 @@ def get_box_folder_files_details(
 
     Raises:
         BoxAPIError: If an error occurs while retrieving folder or file details from the Box API.
+
     """
     box_files_details: List[File] = []
     try:
@@ -147,6 +146,7 @@ def download_file_by_id(box_client: BoxClient, box_file: File, temp_dir: str) ->
 
     Raises:
         BoxAPIError: If an error occurs while interacting with the Box API.
+
     """
     # Save the downloaded file to the specified local directory.
     file_path = os.path.join(temp_dir, box_file.name)
@@ -197,11 +197,12 @@ def get_ai_response_from_box_files(
 
     Raises:
         BoxAPIError: If an error occurs while interacting with the Box AI API.
+
     """
     if individual_document_prompt:
         mode = CreateAiAskMode.SINGLE_ITEM_QA
         for file in box_files:
-            ask_item = CreateAiAskItems(file.id)
+            ask_item = AiItemBase(file.id)
             logger.info(f"Getting AI prompt for file: {file.id} {file.name}")
 
             # get the AI prompt for the file
@@ -220,7 +221,7 @@ def get_ai_response_from_box_files(
 
     else:
         mode = CreateAiAskMode.MULTIPLE_ITEM_QA
-        file_ids = [CreateAiAskItems(file.id) for file in box_files]
+        file_ids = [AiItemBase(file.id) for file in box_files]
 
         # get the AI prompt for the file
         ai_response = box_client.ai.create_ai_ask(
@@ -250,6 +251,7 @@ def _do_request(box_client: BoxClient, url: str):
         BoxSDKError: If an error occurs while retrieving the access token.
         requests.exceptions.RequestException: If the request fails (e.g., network error,
                                              4XX or 5XX status code).
+
     """
     try:
         access_token = box_client.auth.retrieve_token().access_token
@@ -281,6 +283,7 @@ def get_text_representation(
 
     Raises:
         BoxAPIError: If an error occurs while interacting with the Box API.
+
     """
     box_files_text_representations: List[File] = []
     for file in box_files:
@@ -352,18 +355,15 @@ def get_files_ai_extract_data(
 
     Raises:
         BoxAPIError: If an error occurs while interacting with the Box AI API.
-    """
-    ai_extract_manager = AiExtractManager(
-        auth=box_client.auth, network_session=box_client.network_session
-    )
 
+    """
     for file in box_files:
-        ask_item = CreateAiExtractItems(file.id)
+        ask_item = AiItemBase(file.id)
         logger.info(f"Getting AI extracted data for file: {file.id} {file.name}")
 
         # get the AI extracted data for the file
         try:
-            ai_response = ai_extract_manager.create_ai_extract(
+            ai_response = box_client.ai.create_ai_extract(
                 prompt=ai_prompt, items=[ask_item]
             )
         except BoxAPIError as e:
@@ -391,18 +391,8 @@ def search_files(
     recent_updater_user_ids: Optional[List[str]] = None,
     ancestor_folder_ids: Optional[List[str]] = None,
     content_types: Optional[List[SearchForContentContentTypes]] = None,
-    # type: Optional[SearchForContentType] = None,
-    # trash_content: Optional[SearchForContentTrashContent] = None,
-    # mdfilters: Optional[List[MetadataFilter]] = None,
-    # sort: Optional[SearchForContentSort] = None,
-    # direction: Optional[SearchForContentDirection] = None,
     limit: Optional[int] = None,
-    # include_recent_shared_links: Optional[bool] = None,
-    # fields: Optional[List[str]] = None,
     offset: Optional[int] = None,
-    # deleted_user_ids: Optional[List[str]] = None,
-    # deleted_at_range: Optional[List[str]] = None,
-    # extra_headers: Optional[Dict[str, Optional[str]]] = None,
 ) -> List[File]:
     """
     Searches for files in Box based on a query string.
@@ -413,6 +403,7 @@ def search_files(
 
     Returns:
         List[File]: A list of Box file objects that match the search query.
+
     """
     # force to return only object type "file"
     type = SearchForContentType.FILE
@@ -448,11 +439,8 @@ def search_files_by_metadata(
     ancestor_folder_id: str,
     query: Optional[str] = None,
     query_params: Optional[Dict[str, str]] = None,
-    # order_by: Optional[List[SearchByMetadataQueryOrderBy]] = None,
     limit: Optional[int] = None,
     marker: Optional[str] = None,
-    # fields: Optional[List[str]] = None,
-    # extra_headers: Optional[Dict[str, Optional[str]]] = None,
 ) -> List[File]:
     """
     Searches for files in Box based on metadata filters.
@@ -465,6 +453,7 @@ def search_files_by_metadata(
 
     Returns:
         List[File]: A list of Box file objects that match the search query.
+
     """
     # return only the file id
     fields = ["id"]
