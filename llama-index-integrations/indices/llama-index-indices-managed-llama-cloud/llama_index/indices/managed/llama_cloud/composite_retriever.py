@@ -1,5 +1,6 @@
 from typing import Any, List, Optional
 
+from deprecated import deprecated
 import httpx
 from llama_cloud import (
     CompositeRetrievalMode,
@@ -8,6 +9,7 @@ from llama_cloud import (
     Retriever,
     RetrieverPipeline,
     PresetRetrievalParams,
+    ReRankConfig,
 )
 from llama_cloud.resources.pipelines.client import OMIT
 
@@ -19,10 +21,15 @@ from llama_index.indices.managed.llama_cloud.base import LlamaCloudIndex
 from llama_index.indices.managed.llama_cloud.api_utils import (
     resolve_project,
     resolve_retriever,
-    image_nodes_to_node_with_score,
+    page_screenshot_nodes_to_node_with_score,
+    DEPRECATION_REASON,
 )
 
 
+@deprecated(
+    reason=DEPRECATION_REASON,
+    version="0.9.1",
+)
 class LlamaCloudCompositeRetriever(BaseRetriever):
     def __init__(
         self,
@@ -45,6 +52,8 @@ class LlamaCloudCompositeRetriever(BaseRetriever):
         # composite retrieval params
         mode: Optional[CompositeRetrievalMode] = None,
         rerank_top_n: Optional[int] = None,
+        rerank_config: Optional[ReRankConfig] = None,
+        persisted: Optional[bool] = True,
         **kwargs: Any,
     ) -> None:
         """Initialize the Composite Retriever."""
@@ -58,13 +67,15 @@ class LlamaCloudCompositeRetriever(BaseRetriever):
             self._client, project_name, project_id, organization_id
         )
 
-        self.retriever = resolve_retriever(
-            self._client, self.project, name, retriever_id
-        )
         self.name = name
         self.project_name = self.project.name
+        self._persisted = persisted
 
-        if self.retriever is None:
+        self.retriever = resolve_retriever(
+            self._client, self.project, name, retriever_id, persisted
+        )
+
+        if self.retriever is None and persisted:
             if create_if_not_exists:
                 self.retriever = self._client.retrievers.upsert_retriever(
                     project_id=self.project.id,
@@ -78,6 +89,7 @@ class LlamaCloudCompositeRetriever(BaseRetriever):
         # composite retrieval params
         self._mode = mode if mode is not None else OMIT
         self._rerank_top_n = rerank_top_n if rerank_top_n is not None else OMIT
+        self._rerank_config = rerank_config if rerank_config is not None else OMIT
 
         super().__init__(
             callback_manager=kwargs.get("callback_manager"),
@@ -91,9 +103,13 @@ class LlamaCloudCompositeRetriever(BaseRetriever):
     def update_retriever_pipelines(
         self, pipelines: List[RetrieverPipeline]
     ) -> Retriever:
-        self.retriever = self._client.retrievers.update_retriever(
-            self.retriever.id, pipelines=pipelines
-        )
+        if self._persisted:
+            self.retriever = self._client.retrievers.update_retriever(
+                self.retriever.id, pipelines=pipelines
+            )
+        else:
+            # Update in-memory retriever for non-persisted case using copy
+            self.retriever = self.retriever.copy(update={"pipelines": pipelines})
         return self.retriever
 
     def add_index(
@@ -138,9 +154,13 @@ class LlamaCloudCompositeRetriever(BaseRetriever):
     async def aupdate_retriever_pipelines(
         self, pipelines: List[RetrieverPipeline]
     ) -> Retriever:
-        self.retriever = await self._aclient.retrievers.update_retriever(
-            self.retriever.id, pipelines=pipelines
-        )
+        if self._persisted:
+            self.retriever = await self._aclient.retrievers.update_retriever(
+                self.retriever.id, pipelines=pipelines
+            )
+        else:
+            # Update in-memory retriever for non-persisted case using copy
+            self.retriever = self.retriever.copy(update={"pipelines": pipelines})
         return self.retriever
 
     async def async_add_index(
@@ -199,19 +219,36 @@ class LlamaCloudCompositeRetriever(BaseRetriever):
         query_bundle: QueryBundle,
         mode: Optional[CompositeRetrievalMode] = None,
         rerank_top_n: Optional[int] = None,
+        rerank_config: Optional[ReRankConfig] = None,
     ) -> List[NodeWithScore]:
         mode = mode if mode is not None else self._mode
+
         rerank_top_n = rerank_top_n if rerank_top_n is not None else self._rerank_top_n
-        result = self._client.retrievers.retrieve(
-            self.retriever.id,
-            mode=mode,
-            rerank_top_n=rerank_top_n,
-            query=query_bundle.query_str,
+        rerank_config = (
+            rerank_config if rerank_config is not None else self._rerank_config
         )
+
+        if self._persisted:
+            result = self._client.retrievers.retrieve(
+                self.retriever.id,
+                mode=mode,
+                rerank_top_n=rerank_top_n,
+                rerank_config=rerank_config,
+                query=query_bundle.query_str,
+            )
+        else:
+            result = self._client.retrievers.direct_retrieve(
+                project_id=self.project.id,
+                mode=mode,
+                rerank_top_n=rerank_top_n,
+                rerank_config=rerank_config,
+                query=query_bundle.query_str,
+                pipelines=self.retriever.pipelines,
+            )
         node_w_scores = [
             self._result_nodes_to_node_with_score(node) for node in result.nodes
         ]
-        image_nodes_w_scores = image_nodes_to_node_with_score(
+        image_nodes_w_scores = page_screenshot_nodes_to_node_with_score(
             self._client, result.image_nodes, self.retriever.project_id
         )
         return sorted(
@@ -223,19 +260,36 @@ class LlamaCloudCompositeRetriever(BaseRetriever):
         query_bundle: QueryBundle,
         mode: Optional[CompositeRetrievalMode] = None,
         rerank_top_n: Optional[int] = None,
+        rerank_config: Optional[ReRankConfig] = None,
     ) -> List[NodeWithScore]:
         mode = mode if mode is not None else self._mode
+
         rerank_top_n = rerank_top_n if rerank_top_n is not None else self._rerank_top_n
-        result = await self._aclient.retrievers.retrieve(
-            self.retriever.id,
-            mode=mode,
-            rerank_top_n=rerank_top_n,
-            query=query_bundle.query_str,
+        rerank_config = (
+            rerank_config if rerank_config is not None else self._rerank_config
         )
+
+        if self._persisted:
+            result = await self._aclient.retrievers.retrieve(
+                self.retriever.id,
+                mode=mode,
+                rerank_config=rerank_config,
+                rerank_top_n=rerank_top_n,
+                query=query_bundle.query_str,
+            )
+        else:
+            result = await self._aclient.retrievers.direct_retrieve(
+                project_id=self.project.id,
+                mode=mode,
+                rerank_top_n=rerank_top_n,
+                rerank_config=rerank_config,
+                query=query_bundle.query_str,
+                pipelines=self.retriever.pipelines,
+            )
         node_w_scores = [
             self._result_nodes_to_node_with_score(node) for node in result.nodes
         ]
-        image_nodes_w_scores = image_nodes_to_node_with_score(
+        image_nodes_w_scores = page_screenshot_nodes_to_node_with_score(
             self._aclient, result.image_nodes, self.retriever.project_id
         )
         return sorted(
