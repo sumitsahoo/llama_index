@@ -1,5 +1,113 @@
 # ChangeLog
 
+## [2025-08-22]
+
+### `llama-index-core` [0.13.3]
+
+- fix: add timeouts on image `.get()` requests (#19723)
+- fix: fix StreamingAgentChatResponse losses message bug (#19674)
+- fix: Fixing crashing when retrieving from empty vector store index (#19706)
+- fix: Calling ContextChatEngine with a QueryBundle (instead of a string) (#19714)
+- fix: Fix faithfulness evaluate crash when no images provided (#19686)
+
+### `llama-index-embeddings-heroku` [0.1.0]
+
+- feat: Adds support for HerokuEmbeddings (#19685)
+
+### `llama-index-embeddings-ollama` [0.8.2]
+
+- feat: enhance OllamaEmbedding with instruction support (#19721)
+
+### `llama-index-llms-anthropic` [0.8.5]
+
+- fix: Fix prompt caching with CachePoint (#19711)
+
+### `llama-index-llms-openai` [0.5.4]
+
+- feat: add gpt-5-chat-latest model support (#19687)
+
+### `llama-index-llms-sagemaker-endpoint` [0.4.1]
+
+- fix: fix constructor region read to not read region_name before is popped from kwargs, and fix assign to super (#19705)
+
+### `llama-index-llms-upstage` [0.6.2]
+
+- chore: remove deprecated model(solar-pro) (#19704)
+
+### `llama-index-readers-confluence` [0.4.1]
+
+- fix: Support concurrent use of multiple ConfluenceReader instances (#19698)
+
+### `llama-index-vector-stores-chroma` [0.5.1]
+
+- fix: fix `get_nodes()` with empty node ids (#19711)
+
+### `llama-index-vector-stores-qdrant` [0.8.1]
+
+- feat: support qdrant sharding (#19652)
+
+### `llama-index-vector-stores-tencentvectordb` [0.4.1]
+
+- fix: Resolve AttributeError in CollectionParams.filter_fields access (#19695)
+
+## [2025-08-14]
+
+### `llama-index-core` [0.13.2]
+
+- feat: allow streaming to be disabled in agents (#19668)
+- fix: respect the value of NLTK_DATA env var if present (#19664)
+- fix: Order preservation and fetching in batch non-cached embeddings in `a/get_text_embedding_batch()` (#19536)
+
+### `llama-index-embeddings-ollama` [0.8.1]
+
+- fix: Access embedding output (#19635)
+- fix: use normalized embeddings (#19622)
+
+### `llama-index-graph-rag-cognee` [0.3.0]
+
+- fix: Update and fix cognee integration (#19650)
+
+### `llama-index-llms-anthropic` [0.8.4]
+
+- fix: Error in Anthropic extended thinking with tool use (#19642)
+- chore: context window for claude 4 sonnet to 1 mln tokens (#19649)
+
+### `llama-index-llms-bedrock-converse` [0.8.2]
+
+- feat: add openai-oss models to BedrockConverse (#19653)
+
+### `llama-index-llms-ollama` [0.7.1]
+
+- fix: fix ollama role response detection (#19671)
+
+### `llama-index-llms-openai` [0.5.3]
+
+- fix: AzureOpenAI streaming token usage (#19633)
+
+### `llama-index-readers-file` [0.5.1]
+
+- feat: enhance PowerPoint reader with comprehensive content extraction (#19478)
+
+### `llama-index-retrievers-bm25` [0.6.3]
+
+- fix: fix persist+load for bm25 (#19657)
+
+### `llama-index-retrievers-superlinked` [0.1.0]
+
+- feat: add Superlinked retriever integration (#19636)
+
+### `llama-index-tools-mcp` [0.4.0]
+
+- feat: Handlers for custom types and pydantic models in tools (#19601)
+
+### `llama-index-vector-stores-clickhouse` [0.6.0]
+
+- chore: Updates to ClickHouse integration based on new vector search capabilities in ClickHouse (#19647)
+
+### `llama-index-vector-stores-postgres` [0.6.3]
+
+- fix: Add other special characters in `ts_query` normalization (#19637)
+
 ## [2025-08-08]
 
 ### `llama-index-core` [0.13.1]
@@ -58,6 +166,10 @@
 
 - fix: BM25 Retriever allow `top_k` value greater than number of nodes added (#19577)
 - feat: Add metadata filtering support to BM25 Retriever and update documentation (#19586)
+
+### `llama-index-tools-aws-bedrock-agentcore` [0.1.0]
+
+- feat: Bedrock AgentCore browser and code interpreter toolspecs (#19559)
 
 ### `llama-index-vector-stores-baiduvectordb` [0.6.0]
 
