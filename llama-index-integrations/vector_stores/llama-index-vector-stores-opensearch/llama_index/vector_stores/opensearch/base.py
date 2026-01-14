@@ -1,5 +1,6 @@
 """Elasticsearch/Opensearch vector store."""
 
+import asyncio
 import uuid
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Union, cast
@@ -672,7 +673,7 @@ class OpensearchVectorClient:
         else:
             self._os_version = self._get_opensearch_version()
             major, minor, patch = self._os_version.split(".")
-            ef_enabled = int(major) >= 2 and int(minor) >= 9
+            ef_enabled = int(major) > 2 or (int(major) == 2 and int(minor) >= 9)
         return ef_enabled
 
     def index_results(self, nodes: List[BaseNode], **kwargs: Any) -> List[str]:
@@ -822,6 +823,23 @@ class OpensearchVectorClient:
         await self._os_async_client.delete_by_query(
             index=self._index, body=query, refresh=True
         )
+
+    def close(self) -> None:
+        """Close the OpenSearch clients and release resources."""
+        self._os_client.close()
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop: run async close directly
+            asyncio.run(self._os_async_client.close())
+        else:
+            # Running loop: schedule async close
+            loop.create_task(self._os_async_client.close())
+
+    async def aclose(self) -> None:
+        """Asynchronously close the OpenSearch clients and release resources."""
+        self._os_client.close()
+        await self._os_async_client.close()
 
     def query(
         self,
@@ -1101,6 +1119,14 @@ class OpensearchVectorStore(BasePydanticVectorStore):
     async def aclear(self) -> None:
         """Async clears index."""
         await self._client.aclear()
+
+    def close(self) -> None:
+        """Close the vector store and release resources."""
+        self._client.close()
+
+    async def aclose(self) -> None:
+        """Asynchronously close the vector store and release resources."""
+        await self._client.aclose()
 
     def query(self, query: VectorStoreQuery, **kwargs: Any) -> VectorStoreQueryResult:
         """

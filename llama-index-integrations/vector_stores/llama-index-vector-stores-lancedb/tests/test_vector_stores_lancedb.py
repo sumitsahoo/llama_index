@@ -8,9 +8,15 @@ import pytest
 from llama_index.core import VectorStoreIndex
 from llama_index.core.schema import NodeRelationship, RelatedNodeInfo, TextNode
 from llama_index.vector_stores.lancedb import LanceDBVectorStore
-from llama_index.core.embeddings.mock_embed_model import MockEmbedding, BaseEmbedding
+from llama_index.core.embeddings.mock_embed_model import MockEmbedding
+from llama_index.core.base.embeddings.base import BaseEmbedding
 from llama_index.core.settings import Settings
 from pathlib import Path
+from llama_index.core.vector_stores.types import (
+    MetadataFilters,
+    MetadataFilter,
+    FilterOperator,
+)
 
 try:
     from lancedb.pydantic import Vector, LanceModel
@@ -369,3 +375,108 @@ def test_method_table_error(
     # when
     with pytest.raises(TableNotFoundError):
         getattr(vector_store, method)(**kwargs)
+
+
+@pytest.mark.skipif(
+    deps is None,
+    reason="Need to install lancedb and huggingface locally to run this test.",
+)
+@pytest.mark.parametrize("query_type", ["fts", "hybrid"])
+def test_fts_index_ready_flag(
+    tmp_path: Path, text_node_list: list[TextNode], embed_model, query_type: str
+) -> None:
+    # given
+    vector_store = LanceDBVectorStore(
+        uri=str(tmp_path / "test_lancedb"),
+        mode="overwrite",
+    )
+    vector_store.add(text_node_list)
+    index = VectorStoreIndex.from_vector_store(vector_store, embed_model=embed_model)
+
+    # then - flag should be False initially
+    assert vector_store._fts_index_ready is False
+
+    # when - perform FTS | Hybrid query
+    index.as_retriever(vector_store_kwargs={"query_type": query_type}).retrieve("test1")
+
+    # then - flag should be True after FTS index is created
+    assert vector_store._fts_index_ready is True
+
+    # when - add more data
+    new_node = TextNode(
+        text="test4",
+        id_="44444444-4444-4444-4444-444444444444",
+        relationships={NodeRelationship.SOURCE: RelatedNodeInfo(node_id="test-3")},
+    )
+    new_node.embedding = embed_model.get_text_embedding(new_node.text)
+    vector_store.add([new_node])
+
+    # then - flag should be False after adding data
+    assert vector_store._fts_index_ready is False
+
+    # when - perform another FTS | Hybrid query
+    index.as_retriever(vector_store_kwargs={"query_type": query_type}).retrieve("test4")
+
+    # then - flag should be True again after FTS index is recreated
+    assert vector_store._fts_index_ready is True
+
+
+@pytest.mark.skipif(
+    deps is None,
+    reason="Need to install lancedb locally to run this test.",
+)
+def test_filter_fixes(tmp_path: Path, embed_model) -> None:
+    """
+    Test specifically for the bug fixes:
+    1. Metadata filtering on existing table (where metadata_keys might be None initially).
+    2. List values in filters (checking correct quoting).
+    """
+    uri = str(tmp_path / "test_lancedb_filters_fixed")
+    vector_store = LanceDBVectorStore(uri=uri, mode="overwrite")
+
+    nodes = [
+        TextNode(
+            text="node1",
+            metadata={"category": "book", "year": 2000},
+            embedding=embed_model.get_text_embedding("node1"),
+        ),
+        TextNode(
+            text="node2",
+            metadata={"category": "article", "year": 2010},
+            embedding=embed_model.get_text_embedding("node2"),
+        ),
+        TextNode(
+            text="node3",
+            metadata={"category": "paper", "year": 2020},
+            embedding=embed_model.get_text_embedding("node3"),
+        ),
+    ]
+    vector_store.add(nodes)
+
+    vector_store_existing = LanceDBVectorStore(uri=uri)
+
+    filters_str = MetadataFilters(
+        filters=[
+            MetadataFilter(
+                key="category",
+                value=["book", "paper"],
+                operator=FilterOperator.IN,
+            )
+        ]
+    )
+
+    res_str = vector_store_existing.get_nodes(filters=filters_str)
+    assert len(res_str) == 2
+    ids_str = sorted([n.text for n in res_str])
+    assert ids_str == ["node1", "node3"]
+
+    filters_int = MetadataFilters(
+        filters=[
+            MetadataFilter(key="year", value=[2000, 2020], operator=FilterOperator.IN)
+        ]
+    )
+
+    res_int = vector_store_existing.get_nodes(filters=filters_int)
+    assert len(res_int) == 2
+    ids_int = sorted([n.text for n in res_int])
+    assert ids_int == ["node1", "node3"]

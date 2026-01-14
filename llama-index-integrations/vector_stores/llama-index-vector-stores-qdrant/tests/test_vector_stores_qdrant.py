@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 
 from llama_index.core.vector_stores.types import BasePydanticVectorStore
 from llama_index.vector_stores.qdrant import QdrantVectorStore
+from llama_index.core.schema import TextNode
 from llama_index.core.vector_stores.types import (
     VectorStoreQuery,
     VectorStoreQueryMode,
@@ -21,6 +22,8 @@ from llama_index.core.vector_stores.types import (
     FilterCondition,
     FilterOperator,
 )
+from qdrant_client import AsyncQdrantClient
+from qdrant_client.http import models as qmodels
 
 requires_qdrant_cluster = pytest.mark.skipif(
     not os.getenv("QDRANT_CLUSTER_URL"),
@@ -694,3 +697,239 @@ def test_create_payload_indexes_returns_early_when_no_payload_indexes(
     vector_store: QdrantVectorStore,
 ):
     vector_store._create_payload_indexes()
+
+
+def test_sparse_vector_name_detection_switches_to_legacy() -> None:
+    """If only legacy sparse name exists in collection, switch to it."""
+    mock_client = MagicMock(spec=QdrantClient)
+
+    class DummyParams:
+        def __init__(self):
+            self.vectors = {"text-dense": object()}
+            self.sparse_vectors = {"text-sparse": object()}
+
+    class DummyConfig:
+        def __init__(self):
+            self.params = DummyParams()
+
+    class DummyCollection:
+        def __init__(self):
+            self.config = DummyConfig()
+
+    mock_client.collection_exists.return_value = True
+    mock_client.get_collection.return_value = DummyCollection()
+
+    vs = QdrantVectorStore(collection_name="test_collection", client=mock_client)
+
+    assert vs.sparse_vector_name == "text-sparse"
+
+
+def test_sparse_vector_name_detection_keeps_new() -> None:
+    """If only new sparse name exists in collection, keep the default new name."""
+    mock_client = MagicMock(spec=QdrantClient)
+
+    class DummyParams:
+        def __init__(self):
+            self.vectors = {"text-dense": object()}
+            self.sparse_vectors = {"text-sparse-new": object()}
+
+    class DummyConfig:
+        def __init__(self):
+            self.params = DummyParams()
+
+    class DummyCollection:
+        def __init__(self):
+            self.config = DummyConfig()
+
+    mock_client.collection_exists.return_value = True
+    mock_client.get_collection.return_value = DummyCollection()
+
+    vs = QdrantVectorStore(collection_name="test_collection", client=mock_client)
+
+    assert vs.sparse_vector_name == "text-sparse-new"
+
+
+def test_sparse_vector_name_respects_user_specified() -> None:
+    """If a user specifies a sparse vector name present in the collection, don't override it."""
+    mock_client = MagicMock(spec=QdrantClient)
+
+    class DummyParams:
+        def __init__(self):
+            self.vectors = {"text-dense": object()}
+            self.sparse_vectors = {
+                "custom-sparse": object(),
+                "text-sparse-new": object(),
+            }
+
+    class DummyConfig:
+        def __init__(self):
+            self.params = DummyParams()
+
+    class DummyCollection:
+        def __init__(self):
+            self.config = DummyConfig()
+
+    mock_client.collection_exists.return_value = True
+    mock_client.get_collection.return_value = DummyCollection()
+
+    vs = QdrantVectorStore(
+        collection_name="test_collection",
+        client=mock_client,
+        sparse_vector_name="custom-sparse",
+    )
+
+    assert vs.sparse_vector_name == "custom-sparse"
+
+
+@pytest.mark.asyncio
+async def test_async_query_initializes_with_async_client_only() -> None:
+    """
+    When only an async client is provided and the collection already exists,
+    aquery should lazily detect vector format and successfully return results.
+    """
+    collection_name = "async_init_test"
+    aclient = AsyncQdrantClient(":memory:")
+
+    # Create collection with named dense vector
+    await aclient.create_collection(
+        collection_name=collection_name,
+        vectors_config={
+            "text-dense": qmodels.VectorParams(size=2, distance=qmodels.Distance.COSINE)
+        },
+    )
+
+    # Insert a single point
+    await aclient.upsert(
+        collection_name=collection_name,
+        points=[
+            qmodels.PointStruct(
+                id="11111111-1111-1111-1111-111111111111",
+                vector={"text-dense": [1.0, 0.0]},
+                payload={"text": "hello"},
+            )
+        ],
+    )
+
+    # Initialize store with async client only
+    store = QdrantVectorStore(collection_name=collection_name, aclient=aclient)
+
+    query = VectorStoreQuery(query_embedding=[1.0, 0.0], similarity_top_k=1)
+    result = await store.aquery(query)
+
+    assert result is not None
+    assert len(result.nodes) == 1
+    assert getattr(result.nodes[0], "text", None) == "hello"
+
+
+# --- Test async-only initialization with hybrid search enabled ---
+@pytest.mark.asyncio
+async def test_init_with_async_client_only_and_hybrid_succeeds(
+    async_only_hybrid_vector_store: QdrantVectorStore,
+) -> None:
+    """
+    Tests that QdrantVectorStore initializes without errors when only
+    an async client is provided and hybrid search is enabled.
+    """
+    # The test passes if the fixture is created successfully without raising an exception.
+    # We add a simple assertion to confirm the object is of the correct type.
+    assert isinstance(async_only_hybrid_vector_store, QdrantVectorStore)
+    assert async_only_hybrid_vector_store.enable_hybrid is True
+
+
+# --- Test for async-only legacy collection correction ---
+@pytest.mark.asyncio
+async def test_async_only_hybrid_legacy_collection() -> None:
+    """Test that async-only mode correctly handles legacy sparse vector format."""
+    collection_name = "test_legacy_async"
+    aclient = AsyncQdrantClient(":memory:")
+
+    # Create collection with OLD sparse vector name
+    await aclient.create_collection(
+        collection_name=collection_name,
+        vectors_config={
+            "text-dense": qmodels.VectorParams(size=2, distance=qmodels.Distance.COSINE)
+        },
+        sparse_vectors_config={"text-sparse": qmodels.SparseVectorParams()},  # OLD name
+    )
+
+    # Initialize with async client only
+    store = QdrantVectorStore(
+        collection_name=collection_name,
+        aclient=aclient,
+        enable_hybrid=True,
+        fastembed_sparse_model="Qdrant/bm25",
+    )
+
+    # Initially assumes new format
+    assert store.sparse_vector_name == "text-sparse-new"
+
+    # After first async operation, should detect and correct to old format
+    node = TextNode(text="test", embedding=[1.0, 0.0])
+    await store.async_add([node])
+
+    # Should now be corrected
+    assert store.sparse_vector_name == "text-sparse"
+
+
+@pytest.mark.asyncio
+async def test_async_hybrid_vector_store_query(
+    hybrid_vector_store: QdrantVectorStore,
+) -> None:
+    query = VectorStoreQuery(
+        query_embedding=[0.0, 0.0],
+        query_str="test1",
+        similarity_top_k=1,
+        sparse_top_k=1,
+        hybrid_top_k=2,
+        mode=VectorStoreQueryMode.HYBRID,
+    )
+    results = await hybrid_vector_store.aquery(query)
+    assert len(results.nodes) == 2
+
+    # disable hybrid, and it should still work
+    hybrid_vector_store.enable_hybrid = False
+    query.mode = VectorStoreQueryMode.DEFAULT
+    results = await hybrid_vector_store.aquery(query)
+    assert len(results.nodes) == 1
+
+
+def test_vector_store_query(vector_store: QdrantVectorStore) -> None:
+    query = VectorStoreQuery(
+        query_embedding=[1.0, 0.0],
+        similarity_top_k=1,
+        mode=VectorStoreQueryMode.DEFAULT,
+    )
+    results = vector_store.query(query)
+    assert len(results.nodes) == 1
+    assert results.nodes[0].node_id == "11111111-1111-1111-1111-111111111111"
+
+
+@requires_qdrant_server
+def test_vector_store_query_server(
+    payload_indexed_vector_store: QdrantVectorStore,
+) -> None:
+    """Integration test for sync query against a real server."""
+    query = VectorStoreQuery(
+        query_embedding=[1.0, 0.0],
+        similarity_top_k=1,
+        mode=VectorStoreQueryMode.DEFAULT,
+    )
+    results = payload_indexed_vector_store.query(query)
+    assert len(results.nodes) == 1
+    assert results.nodes[0].node_id == "11111111-1111-1111-1111-111111111111"
+
+
+@pytest.mark.asyncio
+@requires_qdrant_server
+async def test_async_vector_store_query_server(
+    payload_indexed_vector_store: QdrantVectorStore,
+) -> None:
+    """Integration test for async query against a real server."""
+    query = VectorStoreQuery(
+        query_embedding=[1.0, 0.0],
+        similarity_top_k=1,
+        mode=VectorStoreQueryMode.DEFAULT,
+    )
+    results = await payload_indexed_vector_store.aquery(query)
+    assert len(results.nodes) == 1
+    assert results.nodes[0].node_id == "11111111-1111-1111-1111-111111111111"

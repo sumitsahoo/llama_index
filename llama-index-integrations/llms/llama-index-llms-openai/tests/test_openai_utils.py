@@ -20,6 +20,7 @@ from llama_index.core.base.llms.types import (
     LogProb,
     MessageRole,
     TextBlock,
+    ToolCallBlock,
 )
 from llama_index.core.bridge.pydantic import BaseModel
 from llama_index.llms.openai import OpenAI
@@ -37,6 +38,7 @@ from llama_index.llms.openai.utils import (
     is_function_calling_model,
     ALL_AVAILABLE_MODELS,
     CHAT_MODELS,
+    is_chatcomp_api_supported,
 )
 
 
@@ -117,7 +119,14 @@ def azure_chat_messages_with_function_calling() -> List[ChatMessage]:
     return [
         ChatMessage(
             role=MessageRole.ASSISTANT,
-            content=None,
+            blocks=[
+                ToolCallBlock(
+                    block_type="tool_call",
+                    tool_call_id="0123",
+                    tool_name="search_hotels",
+                    tool_kwargs='{\n  "location": "San Diego",\n  "max_price": 300,\n  "features": "beachfront,free breakfast"\n}',
+                )
+            ],
             additional_kwargs={
                 "tool_calls": [
                     ChatCompletionMessageToolCall(
@@ -379,9 +388,7 @@ def test_is_json_schema_supported_supported_models() -> None:
     ]
 
     for model in supported_models:
-        assert is_json_schema_supported(model) is True, (
-            f"Model {model} should be supported"
-        )
+        assert is_json_schema_supported(model), f"Model {model} should be supported"
 
 
 def test_is_json_schema_supported_o1_mini_excluded() -> None:
@@ -434,9 +441,14 @@ def test_gpt_5_chat_latest_model_support() -> None:
 
     # Test that model has correct context size
     context_size = openai_modelname_to_contextsize(model_name)
-    assert context_size == 400000, (
-        f"{model_name} should have 400000 tokens context, got {context_size}"
+    assert context_size == 128000, (
+        f"{model_name} should have 128000 tokens context, got {context_size}"
     )
 
     # Test that model is in CHAT_MODELS
     assert model_name in CHAT_MODELS, f"{model_name} should be in CHAT_MODELS"
+
+
+def test_is_chatcomp_api_supported() -> None:
+    assert is_chatcomp_api_supported("gpt-5.2")
+    assert not is_chatcomp_api_supported("gpt-5.2-pro")

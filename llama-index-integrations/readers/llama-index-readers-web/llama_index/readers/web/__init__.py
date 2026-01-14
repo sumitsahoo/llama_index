@@ -19,6 +19,7 @@ from llama_index.readers.web.main_content_extractor.base import (
     MainContentExtractorReader,
 )
 from llama_index.readers.web.news.base import NewsArticleReader
+from llama_index.readers.web.olostep_web.base import OlostepWebReader
 from llama_index.readers.web.oxylabs_web.base import OxylabsWebReader
 from llama_index.readers.web.readability_web.base import (
     ReadabilityWebPageReader,
@@ -31,6 +32,9 @@ from llama_index.readers.web.rss_news.base import (
 )
 from llama_index.readers.web.scrapfly_web.base import (
     ScrapflyReader,
+)
+from llama_index.readers.web.scrapy_web.base import (
+    ScrapyWebReader,
 )
 from llama_index.readers.web.simple_web.base import (
     SimpleWebPageReader,
@@ -66,11 +70,13 @@ __all__ = [
     "KnowledgeBaseWebReader",
     "MainContentExtractorReader",
     "NewsArticleReader",
+    "OlostepWebReader",
     "OxylabsWebReader",
     "ReadabilityWebPageReader",
     "RssReader",
     "RssNewsReader",
     "ScrapflyReader",
+    "ScrapyWebReader",
     "SimpleWebPageReader",
     "SitemapReader",
     "SpiderWebReader",
